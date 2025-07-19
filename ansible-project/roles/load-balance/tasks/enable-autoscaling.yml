@@ -1,0 +1,10 @@
+- name: Enable autoscaling on MIG
+  shell: |
+    gcloud compute instance-groups managed set-autoscaling wp-group \
+      --zone {{ gcp_zone }} \
+      --max-num-replicas {{ max_replicas }} \
+      --min-num-replicas {{ min_replicas }} \
+      --target-load-balancing-utilization {{ target_load_balancing_utilization }} \ 
+      --cool-down-period 60 \
+      --mode on \
+      --project {{ gcp_project }}

@@ -1,0 +1,84 @@
+- name: Get internal IP of the CI/CD server
+  gcp_compute_instance_info:
+    auth_kind: serviceaccount
+    service_account_file: "{{ gcp_credentials_file }}"
+    project: "{{ gcp_project }}"
+    zone: "{{ gcp_zone }}"
+    filters:
+      - name = {{ prefix }}-ci-cd-server
+  register: cicd_instance_info
+
+
+- name: Set CI/CD internal IP as a variable
+  set_fact:
+    ci_cd_server_internal_ip: "{{ cicd_instance_info.resources[0].networkInterfaces[0].networkIP }}"
+
+
+- name: Generate secure secrets
+  set_fact:
+    gitea_lfs_jwt_secret: "{{ lookup('password', '/dev/null length=64 chars=ascii_letters,digits') }}"
+    gitea_internal_token: "{{ lookup('password', '/dev/null length=64 chars=ascii_letters,digits') }}"
+    gitea_jwt_secret: "{{ lookup('password', '/dev/null length=64 chars=ascii_letters,digits') }}"
+
+
+- name: Create local Gitea config file dynamically from template
+  template:
+    src: gitea_app.ini.j2
+    dest: /tmp/gitea_app.ini
+
+
+- name: Copy Gitea config file to CI/CD server
+  command: >
+    gcloud compute scp /tmp/gitea_app.ini {{ prefix }}-ci-cd-server:/tmp/gitea_app.ini
+    --zone={{ gcp_zone }}
+
+
+- name: Move config into place on CI/CD server if not exists
+  command: >
+    gcloud compute ssh {{ prefix }}-ci-cd-server
+    --zone={{ gcp_zone }}
+    --command="
+      sudo mkdir -p {{ gitea_custom_dir }} &&
+      [ -f {{ gitea_custom_dir }}/app.ini ] || (
+        sudo mv /tmp/gitea_app.ini {{ gitea_custom_dir }}/app.ini &&
+        sudo chown {{ gitea_user }}:{{ gitea_user }} {{ gitea_custom_dir }}/app.ini
+      )
+    "
+
+
+- name: Restart Gitea service after config
+  command: >
+    gcloud compute ssh {{ prefix }}-ci-cd-server
+    --zone={{ gcp_zone }}
+    --command="sudo supervisorctl restart gitea"
+
+
+- name: Check if Gitea admin user exists
+  shell: >
+    gcloud compute ssh {{ prefix }}-ci-cd-server
+    --zone {{ gcp_zone }}
+    --command "sudo -u gitea /usr/local/bin/gitea admin user list --config {{ gitea_custom_dir }}/app.ini | grep -w {{ gitea_admin_name }}"
+  register: gitea_admin_check
+  failed_when: false
+  changed_when: gitea_admin_check.rc != 0
+  
+
+- name: Create Gitea admin user
+  shell: >
+    gcloud compute ssh {{ prefix }}-ci-cd-server
+    --zone {{ gcp_zone }}
+    --command "sudo -u gitea {{ gitea_install_dir }}/gitea admin user create --username {{ gitea_admin_name }} --password {{ gitea_admin_password }} --email {{ gitea_admin_email }}  --admin --config {{ gitea_custom_dir }}/app.ini"
+  when: gitea_admin_check.rc != 0
+
+
+- name: Restart Gitea service
+  command: >
+    gcloud compute ssh {{ prefix }}-ci-cd-server
+    --zone={{ gcp_zone }}
+    --command="sudo supervisorctl restart gitea"
+
+
+- name: Delete local temporary Gitea config file
+  file:
+    path: /tmp/gitea_app.ini
+    state: absent

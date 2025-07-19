@@ -1,0 +1,16 @@
+- name: Get internal IP of the master wordpress server
+  gcp_compute_instance_info:
+    auth_kind: serviceaccount
+    service_account_file: "{{ gcp_credentials_file }}"
+    project: "{{ gcp_project }}"
+    zone: "{{ gcp_zone }}"
+    filters:
+      - name = {{ prefix }}-app-server
+  register: master_wp_instance_info
+
+
+- name: Set internal IP as a variable
+  set_fact:
+    master_wp_internal_ip: "{{ master_wp_instance_info.resources[0].networkInterfaces[0].networkIP }}"
+
+

@@ -1,0 +1,36 @@
+- name: Install python3-venv, pip and git
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command='
+      sudo apt-get update -y &&
+      sudo apt-get install -y python3-venv python3-pip git
+    '
+
+
+- name: Ensure /home/jenkins directory exists and is owned by jenkins
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command='
+      sudo mkdir -p /home/jenkins &&
+      sudo chown -R jenkins:jenkins /home/jenkins
+    '
+
+
+- name: Create semgrep virtual environment for Jenkins user
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command='
+      sudo -u jenkins -i bash -c "python3 -m venv /home/jenkins/semgrep-venv"
+    '
+
+
+- name: Install semgrep in virtual environment
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command='
+      sudo -u jenkins -i bash -c "source /home/jenkins/semgrep-venv/bin/activate && pip install --upgrade pip semgrep"
+    '
+
+
+- name: Fix ownership of semgrep virtual environment directory for Jenkins
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command='
+      sudo chown -R jenkins:jenkins /home/jenkins/semgrep-venv
+    '
+

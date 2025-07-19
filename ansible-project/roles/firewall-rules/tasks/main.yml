@@ -1,0 +1,3 @@
+- import_tasks: tasks/deny-all-ingress.yml
+- import_tasks: tasks/allow-internal.yml
+- import_tasks: tasks/allow-host.yml

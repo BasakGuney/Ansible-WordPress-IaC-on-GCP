@@ -1,0 +1,79 @@
+- name: Install Jenkins and dependencies on CI/CD server
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command '
+      sudo apt-get update
+      sudo apt-get install -y openjdk-17-jdk gnupg2 curl
+
+      curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | \
+        sudo gpg --dearmor -o /usr/share/keyrings/jenkins-keyring.gpg
+
+      echo "deb [signed-by=/usr/share/keyrings/jenkins-keyring.gpg] https://pkg.jenkins.io/debian-stable binary/" | \
+        sudo tee /etc/apt/sources.list.d/jenkins.list > /dev/null
+
+      sudo apt-get update
+      sudo apt-get install -y jenkins
+    '
+
+
+- name: Create Jenkins supervisor conf
+  template:
+    src: "jenkins.conf.j2"
+    dest: "/tmp/jenkins.conf"
+
+
+- name: Disable systemd for Jenkins and manage directories
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server \
+      --zone={{ gcp_zone }} \
+      --command="
+        (sudo systemctl stop jenkins || true) &&
+        (sudo systemctl disable jenkins || true) &&
+        (sudo systemctl mask jenkins || true) &&
+        sudo mkdir -p /var/log/jenkins &&
+        sudo touch /var/log/jenkins/jenkins.out.log /var/log/jenkins/jenkins.err.log &&
+        sudo chown -R jenkins:jenkins /var/log/jenkins &&
+        sudo chmod -R 755 /var/log/jenkins
+      "
+
+
+- name: Copy conf file to remote and move to supervisor conf.d
+  shell: |
+    gcloud compute scp /tmp/jenkins.conf {{ prefix }}-ci-cd-server:/tmp/ --zone {{ gcp_zone }} &&
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command='
+      sudo mv /tmp/jenkins.conf /etc/supervisor/conf.d/jenkins.conf &&
+      sudo supervisorctl reread &&
+      sudo supervisorctl update &&
+      sudo supervisorctl start jenkins
+    '
+
+
+- name: Install jenkins-plugin-cli tool
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command '
+      curl -fsSL https://github.com/jenkinsci/plugin-installation-manager-tool/releases/download/2.13.2/jenkins-plugin-manager-2.13.2.jar \
+        -o /usr/local/bin/jenkins-plugin-manager.jar && \
+      echo -e "#!/bin/bash\njava -jar /usr/local/bin/jenkins-plugin-manager.jar \"\$@\"" | sudo tee /usr/local/bin/jenkins-plugin-cli && \
+      sudo chmod +x /usr/local/bin/jenkins-plugin-cli
+    '
+
+
+- name: Wait until Jenkins UI is ready on CI/CD server
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command "
+      until curl -sSf http://localhost:8080/login > /dev/null; do
+        echo 'Waiting for Jenkins to be ready...';
+        sleep 5;
+      done
+    "
+
+
+- name: Download Jenkins CLI jar to CI/CD server as root, move to Jenkins-owned dir
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} \
+    --command="sudo wget http://localhost:8080/jnlpJars/jenkins-cli.jar -O /var/lib/jenkins/jenkins-cli.jar && sudo chown jenkins:jenkins /var/lib/jenkins/jenkins-cli.jar"
+
+
+- name: Delete local temporary supervisor conf file
+  file:
+    path: /tmp/jenkins.conf
+    state: absent

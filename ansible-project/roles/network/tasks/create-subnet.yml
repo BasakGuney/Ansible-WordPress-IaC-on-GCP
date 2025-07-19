@@ -1,0 +1,12 @@
+- name: Create subnet in custom VPC
+  google.cloud.gcp_compute_subnetwork:
+    auth_kind: serviceaccount
+    service_account_file: "{{ gcp_credentials_file }}"
+    project: "{{ gcp_project }}"
+    name: "{{subnet_name}}"
+    region: "{{gcp_region}}"
+    network:
+      selfLink: "https://www.googleapis.com/compute/v1/projects/{{gcp_project}}/global/networks/{{network_name}}"
+    ip_cidr_range: 10.10.0.0/24
+    state: present
+

@@ -1,0 +1,22 @@
+- name: Get internal IPs of instances in subnet using gcloud
+  shell: >
+    gcloud compute instances list
+    --filter="networkInterfaces.subnetwork=https://www.googleapis.com/compute/v1/projects/{{ gcp_project }}/regions/{{ gcp_region }}/subnetworks/{{ subnet_name }}"
+    --format="json(name, networkInterfaces[].networkIP)"
+  register: gcloud_instances
+  changed_when: false
+
+
+- name: Parse JSON and extract internal IPs
+  set_fact:
+    target_ips: >-
+      {{
+        gcloud_instances.stdout | from_json | map(attribute='networkInterfaces') | map('first') | map(attribute='networkIP') | list
+      }}
+
+
+- name: Show extracted IPs
+  debug:
+    var: target_ips
+
+

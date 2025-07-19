@@ -1,0 +1,174 @@
+- name: Install Git on app server using gcloud ssh
+  shell: >
+    gcloud compute ssh {{ prefix }}-app-server --zone {{ gcp_zone }} --command "
+    if ! command -v git > /dev/null 2>&1; then
+      sudo apt update && sudo apt install -y git
+    fi"
+
+
+- name: List all existing Gitea API tokens for admin user
+  shell: | 
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command '
+      curl -s -u {{ gitea_admin_name }}:{{ gitea_admin_password }} \
+      http://{{ci_cd_server_internal_ip}}:3000/api/v1/users/{{ gitea_admin_name }}/tokens
+    '
+  register: gitea_all_tokens_raw
+  failed_when: false
+  changed_when: false
+
+
+- name: Parse existing Gitea tokens and identify 'ansible-token' IDs
+  set_fact:
+    ansible_token_ids_to_delete: "{{ gitea_all_tokens_raw.stdout | from_json | selectattr('name', 'equalto', 'ansible-token') | map(attribute='id') | list }}"
+  when:
+    - gitea_all_tokens_raw.stdout is defined
+    - gitea_all_tokens_raw.stdout | length > 0
+    - gitea_all_tokens_raw.stdout | trim != '[]' 
+    - gitea_all_tokens_raw.stdout | from_json is iterable
+
+
+- name: Debug tokens to delete (optional)
+  debug:
+    msg: "Tokens to delete: {{ ansible_token_ids_to_delete }}"
+  when: ansible_token_ids_to_delete is defined and ansible_token_ids_to_delete | length > 0
+
+
+- name: Delete existing 'ansible-token' instances
+  shell: | 
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command '
+      curl -s -X DELETE http://{{ci_cd_server_internal_ip}}:3000/api/v1/users/{{ gitea_admin_name }}/tokens/{{ item }} \
+      -u {{ gitea_admin_name }}:{{ gitea_admin_password }}
+    '
+  loop: "{{ ansible_token_ids_to_delete }}"
+  when: ansible_token_ids_to_delete is defined and ansible_token_ids_to_delete | length > 0
+  register: gitea_token_deletion_results
+  ignore_errors: true 
+
+
+- name: Generate Gitea API token for admin user (if not exists)
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command '
+      curl -s -X POST http://{{ci_cd_server_internal_ip}}:3000/api/v1/users/{{ gitea_admin_name }}/tokens \
+      -u {{ gitea_admin_name }}:{{ gitea_admin_password }} \
+      -H "Content-Type: application/json" \
+      -d "{\"name\": \"ansible-token\", \"scopes\":[\"all\"]}"
+    '
+  register: gitea_token_response
+  when: gitea_api_token is not defined 
+
+
+- name: Parse Gitea token and save SHA1 to a fact
+  set_fact:
+    gitea_api_token_sha1: "{{ gitea_token_response.stdout | from_json | json_query('sha1') }}"
+  when:
+    - gitea_token_response is defined
+    - gitea_token_response.stdout is not none
+    - gitea_token_response.stdout | length > 0
+    - gitea_token_response.stdout | trim != '[]'
+    - gitea_token_response.stdout is search('^{.*}$') 
+    - gitea_token_response.stdout | from_json | json_query('sha1') is defined
+    - gitea_api_token is not defined 
+
+
+- name: Check if Gitea repos exist
+  shell: >
+    gcloud compute ssh {{ prefix }}-ci-cd-server
+    --zone {{ gcp_zone }}
+    --command "
+      curl -s -H 'Authorization: token {{ gitea_api_token_sha1 }}' \
+      http://{{ ci_cd_server_internal_ip }}:3000/api/v1/repos/{{ gitea_admin_name }}/{{ item }}"
+  register: gitea_repo_check
+  ignore_errors: true
+  loop:
+    - "{{ wp1_name }}"
+    - "{{ wp2_name }}"
+  loop_control:
+    label: "{{ item }}"
+
+
+- name: Prepare repo status list manually (no zip)
+  set_fact:
+    gitea_repo_status_list: >-
+      {{
+        [
+          {'name': wp1_name, 'result': gitea_repo_check.results[0]},
+          {'name': wp2_name, 'result': gitea_repo_check.results[1]}
+        ]
+      }}
+
+
+- name: Create Gitea repo if it does not exist
+  shell: >
+    gcloud compute ssh {{ prefix }}-ci-cd-server
+    --zone {{ gcp_zone }}
+    --command "
+      curl -X POST http://{{ ci_cd_server_internal_ip }}:3000/api/v1/user/repos \
+        -H 'Content-Type: application/json' \
+        -H 'Authorization: token {{ gitea_api_token_sha1 }}' \
+        -d '{\"name\": \"{{ item.name }}\", \"private\": false, \"auto_init\": false}'"
+  when: '"The target couldn''t be found." in item.result.stdout'
+  loop: "{{ gitea_repo_status_list }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+
+- name: Push WordPress files to Gitea
+  shell: >
+    gcloud compute ssh {{ prefix }}-app-server --zone {{ gcp_zone }} --command "
+    cd /var/www/{{ item }} &&
+    sudo -u www-data rm -rf .git &&
+    sudo -u www-data git init &&
+    sudo -u www-data git remote add origin http://{{ gitea_admin_name }}:{{ gitea_admin_password }}@{{ ci_cd_server_internal_ip }}:3000/{{ gitea_admin_name }}/{{ item }}.git &&
+    sudo -u www-data git add . &&
+    sudo -u www-data git commit -m 'Initial commit' &&
+    sudo -u www-data git branch -M main &&
+    sudo -u www-data git push -u origin main"
+  register: git_debug_output
+  ignore_errors: true
+  loop:
+    - "{{ wp1_name }}"
+    - "{{ wp2_name }}"
+  loop_control:
+    label: "{{ item }}"
+
+
+- name: Check and create webhook if not exists
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server \
+    --zone {{ gcp_zone }} \
+    --command='
+      existing=$(curl -s -H "Authorization: token {{ gitea_api_token_sha1 }}" \
+        http://{{ ci_cd_server_internal_ip }}:3000/api/v1/repos/{{ gitea_admin_name }}/{{ item }}/hooks)
+
+      if echo "$existing" | grep -q "http://{{ ci_cd_server_internal_ip }}:8080/generic-webhook-trigger/invoke?token="; then
+        echo "Webhook already exists. Skipping creation."
+      else
+        echo "Creating webhook..."
+        curl -X POST http://{{ ci_cd_server_internal_ip }}:3000/api/v1/repos/{{ gitea_admin_name }}/{{ item }}/hooks \
+          -H "Content-Type: application/json" \
+          -H "Authorization: token {{ gitea_api_token_sha1 }}" \
+          -d '\''{
+            "type": "gitea",
+            "config": {
+              "url": "http://{{ ci_cd_server_internal_ip }}:8080/generic-webhook-trigger/invoke?token=token-for-{{ item }}",
+              "content_type": "json",
+              "insecure_ssl": "0"
+            },
+            "events": ["push"],
+            "active": true
+          }'\'' 
+      fi
+    '
+  loop:
+    - "{{ wp1_name }}"
+    - "{{ wp2_name }}"
+  loop_control:
+    label: "{{ item }}"
+
+
+
+
+
+
+
+    

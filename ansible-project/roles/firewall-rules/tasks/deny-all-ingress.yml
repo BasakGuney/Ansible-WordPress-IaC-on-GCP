@@ -1,0 +1,16 @@
+- name: Create firewall rule to deny all ingress traffic
+  google.cloud.gcp_compute_firewall:
+    auth_kind: serviceaccount
+    service_account_file: "{{ gcp_credentials_file }}"
+    project: "{{ gcp_project }}"
+    name: "{{prefix}}-deny-all-ingress"
+    network:
+      selfLink: "https://www.googleapis.com/compute/v1/projects/{{gcp_project}}/global/networks/{{network_name}}"
+    direction: INGRESS
+    priority: 65534
+    denied:
+      - ip_protocol: all
+    source_ranges:
+      - "0.0.0.0/0"
+    state: present
+

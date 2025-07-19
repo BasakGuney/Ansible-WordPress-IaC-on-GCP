@@ -1,0 +1,60 @@
+- name: Create Loki config file
+  template:
+    src: loki-config.yml.j2
+    dest: /tmp/loki-config.yaml
+
+
+- name: Copy config file to instance
+  shell: |
+    gcloud compute scp /tmp/loki-config.yaml {{ prefix }}-log-server:/tmp/loki-config.yaml \
+    --zone {{ gcp_zone }}
+
+
+- name: Move file
+  shell: |
+    gcloud compute ssh {{ prefix }}-log-server \
+    --zone {{ gcp_zone }} \
+    --command='
+      sudo mv /tmp/loki-config.yaml  /etc/loki-config.yaml
+    '
+
+
+- name: Delete local temporary 
+  file:
+    path: /tmp/loki-config.yaml
+    state: absent
+
+
+- name: Create Loki supervisor conf
+  template:
+    src: "loki.conf.j2"
+    dest: "/tmp/loki.conf"
+
+
+- name: Manage Loki log directories
+  shell: |
+    gcloud compute ssh {{ prefix }}-log-server \
+      --zone={{ gcp_zone }} \
+      --command="
+        sudo mkdir -p /var/log/loki &&
+        sudo touch /var/log/loki/loki.out.log /var/log/loki/loki.err.log &&
+        sudo chown -R root:root /var/log/loki &&
+        sudo chmod -R 755 /var/log/loki
+      "
+
+
+- name: Copy conf file to remote and move to supervisor conf.d
+  shell: |
+    gcloud compute scp /tmp/loki.conf {{ prefix }}-log-server:/tmp/ --zone {{ gcp_zone }} &&
+    gcloud compute ssh {{ prefix }}-log-server --zone {{ gcp_zone }} --command='
+      sudo mv /tmp/loki.conf /etc/supervisor/conf.d/loki.conf &&
+      sudo supervisorctl reread &&
+      sudo supervisorctl update &&
+      sudo supervisorctl start loki
+    '
+
+
+- name: Delete local temporary Loki service file
+  file:
+    path: /tmp/loki.conf
+    state: absent

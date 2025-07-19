@@ -1,0 +1,35 @@
+- name: Create static IP for cache server
+  google.cloud.gcp_compute_address:
+    name: "{{prefix}}-cache-server-static-ip"
+    region: "{{gcp_region}}"
+    project: "{{ gcp_project }}"
+    auth_kind: serviceaccount
+    service_account_file: "{{ gcp_credentials_file }}"
+    state: present
+  register: cache_server_static_ip_result
+
+
+- name: Create cache server
+  google.cloud.gcp_compute_instance:
+    name: "{{prefix}}-cache-server"
+    machine_type: e2-medium
+    zone: "{{gcp_zone}}"
+    project: "{{ gcp_project }}"
+    auth_kind: serviceaccount
+    service_account_file: "{{gcp_credentials_file}}"
+    tags:
+      items:
+        - "{{prefix}}-cache-server"
+    disks:
+      - auto_delete: true
+        boot: true
+        initialize_params:
+          source_image: projects/ubuntu-os-cloud/global/images/ubuntu-minimal-2404-noble-amd64-v20250530
+          disk_size_gb: 20
+    network_interfaces:
+      - subnetwork:
+          selfLink: "https://www.googleapis.com/compute/v1/projects/{{gcp_project}}/regions/{{gcp_region}}/subnetworks/{{subnet_name}}"
+        access_configs:
+          - name: External NAT
+            nat_ip: "{{ cache_server_static_ip_result }}"
+            type: ONE_TO_ONE_NAT

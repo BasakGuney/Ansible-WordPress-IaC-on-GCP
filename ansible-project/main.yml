@@ -1,0 +1,56 @@
+- name: Start Services
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    app_server_user: bguney
+    e_mail: basakguney3047@gmail.com
+    prefered_venv_path: "{{ current_path }}"
+    gcp_project: "devops-interns"
+    gcp_credentials_file: "/home/bguney/.gcp/bguney.json"
+    prefix: "bguney-intern"
+    gcp_region: "europe-west3"
+    gcp_zone: "europe-west3-a"
+    network_name: "{{ prefix }}-vpc"
+    network_auto_create_subnetworks: false
+    subnet_name: "{{ prefix }}-subnet"
+
+
+  pre_tasks:
+  - name: Get public IP of local host
+    shell: curl -s ifconfig.me
+    register: public_ip_result
+
+
+  - name: Set host_ip fact
+    set_fact:
+      host_ip: "{{ public_ip_result.stdout }}"
+
+
+  - name: Get current working directory on control machine
+    command: pwd
+    register: current_path_result
+    changed_when: false
+
+
+  - name: Set current_path variable
+    set_fact:
+      current_path: "{{ current_path_result.stdout }}"
+  
+
+  - name: Install Firefox to local
+    become: true
+    apt:
+      name: firefox
+      state: present
+      update_cache: yes
+
+
+  roles:
+  - setup-env
+  - network
+  - firewall-rules
+  - instances
+  - installations
+  - load-balance
+#  - delete-all

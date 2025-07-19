@@ -1,0 +1,8 @@
+[program:prometheus]
+command=/usr/local/bin/prometheus  --config.file=/etc/prometheus/prometheus.yml  --storage.tsdb.path=/var/lib/prometheus/  --web.console.templates=/etc/prometheus/consoles  --web.console.libraries=/etc/prometheus/console_libraries
+autostart=true
+autorestart=true
+user={{ prometheus_user | default("prometheus") }}
+stdout_logfile=/var/log/prometheus/prometheus.out.log
+stderr_logfile=/var/log/prometheus/prometheus.err.log
+

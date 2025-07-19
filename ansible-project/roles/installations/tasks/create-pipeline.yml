@@ -1,0 +1,155 @@
+- name: Ensure local 'keys' directory exists
+  ansible.builtin.file:
+    path: "./keys"
+    state: directory
+    mode: '0755'
+
+
+- name: Generate SSH key pair for Jenkins (locally if not exists)
+  ansible.builtin.command: ssh-keygen -t rsa -b 4096 -f keys/id_rsa -N ""
+  args:
+    creates: keys/id_rsa
+
+
+- name: Upload private SSH key to Jenkins server
+  ansible.builtin.command: >
+    gcloud compute scp keys/id_rsa {{ prefix }}-ci-cd-server:/tmp/id_rsa
+    --zone={{ gcp_zone }}
+  when: >
+    (lookup('file', 'keys/id_rsa', errors='ignore') | length) > 0
+
+
+- name: Copy private SSH key to Jenkins server if not exists
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} \
+    --command='[ -f /var/lib/jenkins/.ssh/id_rsa ] || (
+      sudo mkdir -p /var/lib/jenkins/.ssh &&
+      sudo mv /tmp/id_rsa /var/lib/jenkins/.ssh/id_rsa &&
+      sudo chown jenkins:jenkins /var/lib/jenkins/.ssh/id_rsa &&
+      sudo chmod 600 /var/lib/jenkins/.ssh/id_rsa
+    )'
+  when: >
+    (lookup('file', 'keys/id_rsa', errors='ignore') | length) > 0
+  ignore_errors: true
+
+
+- name: Upload private key to Jenkins server
+  shell: >
+    gcloud compute scp keys/id_rsa {{ prefix }}-ci-cd-server:/tmp/id_rsa --zone {{ gcp_zone }}
+  when: >
+    (lookup('file', 'keys/id_rsa', errors='ignore') | length) > 0
+  ignore_errors: true
+
+
+- name: Ensure Jenkins .ssh folder is owned and secured
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} \
+    --command="sudo mkdir -p /var/lib/jenkins/.ssh && sudo chown -R jenkins:jenkins /var/lib/jenkins/.ssh && sudo chmod 700 /var/lib/jenkins/.ssh"
+
+
+- name: Set private key ownership and permissions
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} \
+    --command="sudo chown jenkins:jenkins /var/lib/jenkins/.ssh/id_rsa && sudo chmod 600 /var/lib/jenkins/.ssh/id_rsa"
+
+
+- name: Copy public key to App Server if not already there
+  shell: >
+    gcloud compute scp keys/id_rsa.pub {{ prefix }}-app-server:/tmp/jenkins_id_rsa.pub --zone {{ gcp_zone }}
+
+
+- name: Add Jenkins public key to App Server authorized_keys if not already present
+  shell: |
+    gcloud compute ssh {{ prefix }}-app-server --zone {{ gcp_zone }} \
+    --command='
+      mkdir -p /home/{{ app_server_user }}/.ssh &&
+      grep -q -F "$(cat /tmp/jenkins_id_rsa.pub)" /home/{{ app_server_user }}/.ssh/authorized_keys ||
+      (cat /tmp/jenkins_id_rsa.pub >> /home/{{ app_server_user }}/.ssh/authorized_keys &&
+       chmod 600 /home/{{ app_server_user }}/.ssh/authorized_keys)'
+  become: false
+
+
+- name: Ensure known_hosts file exists for Jenkins user
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} \
+    --command="sudo -u jenkins touch /var/lib/jenkins/.ssh/known_hosts && sudo chmod 644 /var/lib/jenkins/.ssh/known_hosts"
+
+
+- name: Add App Server to Jenkins known_hosts only if missing
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} \
+    --command='
+      sudo grep -q "{{ app_server_internal_ip }}" /var/lib/jenkins/.ssh/known_hosts ||
+      ssh-keyscan {{ app_server_internal_ip }} | sudo tee -a /var/lib/jenkins/.ssh/known_hosts > /dev/null'
+
+
+- name: Create Groovy Jenkinsfile
+  template:
+    src: jenkins-pipeline.groovy.j2
+    dest: "/tmp/{{ item.name }}-pipeline.groovy"
+  loop:
+    - { name: site1, wp_name: "{{ wp1_name }}" }
+    - { name: site2, wp_name: "{{ wp2_name }}" }
+
+
+- name: Copy Groovy pipeline script to Jenkins instance
+  shell: >
+    gcloud compute scp /tmp/{{ item.name }}-pipeline.groovy {{ prefix }}-app-server:/tmp/{{ item.name }}-Jenkinsfile --zone {{ gcp_zone }}
+  loop:
+    - { name: site1, wp_name: "{{ wp1_name }}" }
+    - { name: site2, wp_name: "{{ wp2_name }}" }
+
+
+- name: Push Jenkinsfile to WordPress repo on app server
+  shell: >
+    gcloud compute ssh {{ prefix }}-app-server --zone {{ gcp_zone }} --command "
+    cd /var/www/{{ item.wp_name }} &&
+    sudo -u www-data git pull origin main --no-rebase --allow-unrelated-histories --no-edit &&
+    sudo mv /tmp/{{ item.name }}-Jenkinsfile ./Jenkinsfile &&
+    sudo chown -R www-data:www-data . &&
+    sudo -u www-data git add . &&
+    sudo -u www-data git commit -m 'Jenkinsfile added.' &&
+    sudo -u www-data git branch -M main &&
+    sudo -u www-data git push -u origin main"
+  ignore_errors: true
+  loop:
+    - { name: site1, wp_name: "{{ wp1_name }}" }
+    - { name: site2, wp_name: "{{ wp2_name }}" }
+
+
+- name: Render Jenkins job XML config
+  template:
+    src: jenkins-job.xml.j2
+    dest: "/tmp/{{ item.name }}-pipeline.xml"
+  loop:
+    - { name: site1, wp_name: "{{ wp1_name }}" }
+    - { name: site2, wp_name: "{{ wp2_name }}" }
+
+
+- name: Upload XML config to Jenkins server
+  shell: >
+    gcloud compute scp /tmp/{{ item.name }}-pipeline.xml {{ prefix }}-ci-cd-server:/tmp/{{ item.name }}-pipeline.xml --zone {{ gcp_zone }} --quiet
+  loop:
+    - { name: site1, wp_name: "{{ wp1_name }}" }
+    - { name: site2, wp_name: "{{ wp2_name }}" }
+
+
+- name: Recreate Jenkins job from XML and trigger build
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server \
+    --zone {{ gcp_zone }} \
+    --command='
+      if java -jar /var/lib/jenkins/jenkins-cli.jar -s http://localhost:8080 -auth {{ jenkins_admin_user }}:{{ jenkins_admin_password }} get-job {{ item.name }} > /dev/null 2>&1; then
+        echo "Job exists. Deleting..."
+        java -jar /var/lib/jenkins/jenkins-cli.jar -s http://localhost:8080 -auth {{ jenkins_admin_user }}:{{ jenkins_admin_password }} delete-job {{ item.name }}
+      fi
+
+      echo "Creating job..."
+      java -jar /var/lib/jenkins/jenkins-cli.jar -s http://localhost:8080 -auth {{ jenkins_admin_user }}:{{ jenkins_admin_password }} create-job {{ item.name }} < /tmp/{{ item.name }}-pipeline.xml
+
+      echo "Triggering build..."
+      java -jar /var/lib/jenkins/jenkins-cli.jar -s http://localhost:8080 -auth {{ jenkins_admin_user }}:{{ jenkins_admin_password }} build {{ item.name }}
+    '
+  loop:
+    - { name: site1, wp_name: "{{ wp1_name }}" }
+    - { name: site2, wp_name: "{{ wp2_name }}" }

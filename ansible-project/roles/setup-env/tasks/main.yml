@@ -1,0 +1,54 @@
+- name: Install required APT packages
+  apt:
+    name:
+      - python3-pip
+      - python3-venv
+    state: present
+    update_cache: true
+  become: true
+
+
+- name: Create virtual environment folder
+  file:
+    path: "{{ venv_path }}"
+    state: directory
+    mode: '0755'
+
+
+- name: Create virtual environment
+  command: python3 -m venv "{{ venv_path }}"
+  args:
+    creates: "{{ venv_path }}/bin/activate"
+
+
+- name: Update pip in virtual environment
+  command: "{{ pip_bin }} install --upgrade pip"
+
+
+- name: Install GCP Python modules in virtual environment
+  pip:
+    executable: "{{ pip_bin }}"
+    name: "{{ pip_packages }}"
+
+
+- name: Set ansible_python_interpreter for rest of play
+  set_fact:
+      ansible_python_interpreter: "{{ python_bin }}"
+
+
+- name: Set-up google.cloud collection
+  ansible.builtin.command: ansible-galaxy collection install google.cloud
+  args:
+    creates: ~/.ansible/collections/ansible_collections/google/cloud
+
+
+- name: Authenticate gcloud with service account
+  shell: >
+    gcloud auth activate-service-account --key-file={{gcp_credentials_file}}
+
+
+- name: Set active GCP project
+  shell: >
+    gcloud config set project {{gcp_project}}
+
+

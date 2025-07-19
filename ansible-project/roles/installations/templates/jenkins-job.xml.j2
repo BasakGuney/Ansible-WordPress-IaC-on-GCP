@@ -1,0 +1,43 @@
+<flow-definition plugin="workflow-job">
+  <actions/>
+  <description></description>
+  <keepDependencies>false</keepDependencies>
+  <properties/>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsScmFlowDefinition" plugin="workflow-cps">
+    <scm class="hudson.plugins.git.GitSCM" plugin="git">
+      <configVersion>2</configVersion>
+      <userRemoteConfigs>
+        <hudson.plugins.git.UserRemoteConfig>
+          <url>http://{{ ci_cd_server_internal_ip }}:3000/{{ gitea_admin_name }}/{{ item.wp_name }}.git</url>
+        </hudson.plugins.git.UserRemoteConfig>
+      </userRemoteConfigs>
+      <branches>
+        <hudson.plugins.git.BranchSpec>
+          <name>main</name>
+        </hudson.plugins.git.BranchSpec>
+      </branches>
+      <doGenerateSubmoduleConfigurations>false</doGenerateSubmoduleConfigurations>
+      <submoduleCfg class="list"/>
+      <extensions/>
+    </scm>
+    <scriptPath>Jenkinsfile</scriptPath>
+    <lightweight>true</lightweight>
+  </definition>
+  <triggers>
+    <org.jenkinsci.plugins.gwt.GenericTrigger plugin="generic-webhook-trigger@2.3.1">
+      <spec/>
+      <regexpFilterText/>
+      <regexpFilterExpression/>
+      <printPostContent>false</printPostContent>
+      <printContributedVariables>false</printContributedVariables>
+      <causeString>Generic Cause</causeString>
+      <token>token-for-{{ item.wp_name }}</token>
+      <tokenCredentialId/>
+      <silentResponse>false</silentResponse>
+      <overrideQuietPeriod>false</overrideQuietPeriod>
+      <shouldNotFlattern>false</shouldNotFlattern>
+      <allowSeveralTriggersPerBuild>false</allowSeveralTriggersPerBuild>
+    </org.jenkinsci.plugins.gwt.GenericTrigger>
+  </triggers>
+  <disabled>false</disabled>
+</flow-definition>

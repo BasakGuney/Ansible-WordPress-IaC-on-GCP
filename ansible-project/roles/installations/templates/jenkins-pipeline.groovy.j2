@@ -1,0 +1,65 @@
+pipeline {
+    agent any
+    environment {
+        APP_SERVER = "{{ app_server_user }}@{{ app_server_internal_ip }}"
+        SSH_KEY = "/var/lib/jenkins/.ssh/id_rsa"
+        GIT_REPO = "http://{{ ci_cd_server_internal_ip }}:3000/{{ gitea_admin_name }}/{{ item.wp_name }}.git"
+        LOCAL_REPO = "${WORKSPACE}/{{ item.wp_name }}"
+        WP_DIR = "/var/www/{{ item.wp_name }}"
+    }
+    stages {
+        stage('Clone or Pull Repo') {
+            steps {
+                sh '''
+                git clone ${GIT_REPO} ${LOCAL_REPO}
+                '''
+            }
+        }
+
+        stage('Run Semgrep WordPress Scan') {
+            environment {
+                PATH = "/home/jenkins/semgrep-venv/bin:$PATH"
+                HOME = "/var/lib/jenkins"
+            }
+            steps {
+                sh '''
+                git config --global --add safe.directory ${LOCAL_REPO}
+                cd ${WORKSPACE}
+                semgrep --config=p/wordpress
+                '''
+            }
+        }
+
+        /*
+        If you would like to use Semgrep App, comment out this stage and also comment out semgrep_token in ansible vars.
+
+        stage('Run Semgrep Scan in App') {
+            environment {
+                PATH = "/home/jenkins/semgrep-venv/bin:$PATH"
+                HOME = "/var/lib/jenkins"
+                SEMGREP_APP_TOKEN = "{{semgrep_token}}"
+            }
+            steps {
+                sh '''
+                git config --global --add safe.directory ${LOCAL_REPO}
+                cd ${LOCAL_REPO}
+                semgrep ci  --verbose
+                '''
+            }
+        }
+        */
+
+        stage('Git Pull on App Server') {
+            steps {
+                sh """
+                ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${APP_SERVER} 'cd ${WP_DIR} && sudo -u www-data git merge --abort || true && sudo -u www-data git pull origin main --no-rebase --allow-unrelated-histories --no-edit'
+                """
+            }
+        }
+    }
+    post {
+        always {
+            sh "rm -rf ${LOCAL_REPO}"
+        }
+    }
+}

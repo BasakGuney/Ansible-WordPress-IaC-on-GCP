@@ -1,0 +1,6 @@
+- import_tasks: tasks/app-server.yml
+- import_tasks: tasks/db-server.yml
+- import_tasks: tasks/cache-server.yml
+- import_tasks: tasks/ci-cd-server.yml
+- import_tasks: tasks/monitoring-server.yml
+- import_tasks: tasks/log-server.yml

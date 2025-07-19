@@ -1,0 +1,8 @@
+# wp name
+wp1_name: "wp1"
+
+
+# autoscale
+max_replicas: 3
+min_replicas: 1
+target_load_balancing_utilization: 0.6

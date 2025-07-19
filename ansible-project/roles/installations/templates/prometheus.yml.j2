@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'machine-metrics'
+    static_configs:
+      - targets:
+{% for ip in target_ips %}
+          - '{{ ip }}:9100'
+{% endfor %}
+  - job_name: 'nginx_wp1'
+    static_configs:
+      - targets: ['{{ app_server_internal_ip }}:9114']
+        labels:
+          app: 'nginx'
+          site: 'wp1'
+  - job_name: 'nginx_wp2'
+    static_configs:
+      - targets: ['{{ app_server_internal_ip }}:9115']
+        labels:
+          app: 'nginx'
+          site: 'wp2'

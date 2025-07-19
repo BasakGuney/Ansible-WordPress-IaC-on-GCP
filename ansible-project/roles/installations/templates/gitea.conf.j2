@@ -1,0 +1,10 @@
+[program:gitea]
+command={{ gitea_install_dir }}/gitea web --config {{ gitea_custom_dir }}/app.ini
+directory={{ gitea_app_dir }}
+autostart=true
+autorestart=true
+startsecs=5
+user={{ gitea_user }}
+environment=USER="{{ gitea_user }}",HOME="{{ gitea_home }}"
+stdout_logfile=/var/log/gitea/gitea.out.log
+stderr_logfile=/var/log/gitea/gitea.err.log

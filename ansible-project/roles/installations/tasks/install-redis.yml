@@ -1,0 +1,77 @@
+- name: Check if redis-server is already installed
+  command: >
+    gcloud compute ssh {{ prefix }}-cache-server
+    --zone {{ gcp_zone }}
+    --command 'which redis-server'
+  register: redis_check
+  failed_when: false
+  changed_when: "'redis-server' in redis_check.stdout"
+
+
+
+- name: Install Redis if not found
+  shell: |
+    gcloud compute ssh {{ prefix }}-cache-server --zone {{ gcp_zone }} --command '
+      sudo apt update &&
+      sudo apt install -y redis-server 
+    '
+  when: redis_check.rc != 0
+
+
+- name: Create Redis supervisor conf
+  template:
+    src: "redis.conf.j2"
+    dest: "/tmp/redis.conf"
+
+
+- name: Disable systemd for Redis and manage directories
+  shell: |
+    gcloud compute ssh {{ prefix }}-cache-server \
+      --zone={{ gcp_zone }} \
+      --command="
+        (sudo systemctl stop redis-server || true) &&
+        (sudo systemctl disable redis-server || true) &&
+        (sudo systemctl mask redis-server || true) &&
+        sudo mkdir -p /var/log/redis
+        sudo touch /var/log/redis/redis.log /var/log/redis/redis_error.log
+        sudo chown -R redis:redis /var/log/redis
+        sudo chmod -R 755 /var/log/redis
+        sudo sed -i 's/^supervised .*/supervised no/' /etc/redis/redis.conf || echo 'supervised no' | sudo tee -a /etc/redis/redis.conf;
+        sudo sed -i 's/^daemonize .*/daemonize no/' /etc/redis/redis.conf || echo 'daemonize no' | sudo tee -a /etc/redis/redis.conf;
+        sudo sed -i 's|^logfile .*|logfile \"\"|' /etc/redis/redis.conf || echo 'logfile \"\"' | sudo tee -a /etc/redis/redis.conf
+      "
+
+
+- name: Copy conf files to remote and move to supervisor conf.d
+  shell: |
+    gcloud compute scp /tmp/redis.conf {{ prefix }}-cache-server:/tmp/ --zone {{ gcp_zone }} &&
+    gcloud compute ssh {{ prefix }}-cache-server --zone {{ gcp_zone }} --command='
+      sudo mv /tmp/redis.conf /etc/supervisor/conf.d/redis.conf &&
+      sudo supervisorctl reread &&
+      sudo supervisorctl update &&
+      sudo supervisorctl start redis
+    '
+
+
+- name: Check if Redis already configured to allow external/internal access
+  command: >
+    gcloud compute ssh {{ prefix }}-cache-server --zone {{ gcp_zone }} --command="grep -q '^bind 0.0.0.0' /etc/redis/redis.conf"
+  register: redis_bind_check
+  failed_when: false
+  changed_when: redis_bind_check.rc != 0
+
+
+- name: Configure Redis to allow internal access and add password if not done
+  shell: |
+    gcloud compute ssh {{ prefix }}-cache-server --zone {{ gcp_zone }} --command '
+      sudo sed -i "s/^bind .*/bind 0.0.0.0/" /etc/redis/redis.conf &&
+      sudo sed -i "s/^# requirepass .*/requirepass {{ redis_password }}/" /etc/redis/redis.conf &&
+      sudo supervisorctl restart redis
+    '
+  when: redis_bind_check.rc != 0
+
+
+- name: Delete local temporary supervisor conf file
+  file:
+    path: /tmp/redis.conf
+    state: absent

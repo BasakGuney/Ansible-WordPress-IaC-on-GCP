@@ -1,0 +1,18 @@
+[program:grafana]
+directory=/usr/share/grafana
+command=/usr/share/grafana/bin/grafana server \
+  --homepath=/usr/share/grafana \
+  --config=/etc/grafana/grafana.ini \
+  --pidfile=/var/run/grafana/grafana-server.pid \
+  --packaging=deb \
+  cfg:default.paths.logs=/var/log/grafana \
+  cfg:default.paths.data=/var/lib/grafana \
+  cfg:default.paths.plugins=/var/lib/grafana/plugins \
+  cfg:default.paths.provisioning=/etc/grafana/provisioning
+autostart=true
+autorestart=true
+startsecs=10
+user=grafana
+stdout_logfile=/var/log/grafana/grafana.out.log
+stderr_logfile=/var/log/grafana/grafana.err.log
+environment=HOME="/usr/share/grafana",USER="grafana"

@@ -1,0 +1,59 @@
+- name: Get internal IP of the log server
+  gcp_compute_instance_info:
+    auth_kind: serviceaccount
+    service_account_file: "{{ gcp_credentials_file }}"
+    project: "{{ gcp_project }}"
+    zone: "{{ gcp_zone }}"
+    filters:
+      - name = "{{ prefix }}-log-server"
+  register: log_instance_info
+
+
+- name: Set log internal IP as a variable
+  set_fact:
+    log_server_internal_ip: "{{ log_instance_info.resources[0].networkInterfaces[0].networkIP }}"
+
+
+- name: Set log_paths with multiple paths
+  set_fact:
+    log_paths: >-
+      {{
+        {
+          (prefix + "-app-server"): ["/var/log/nginx/*.log", "/var/log/node_exporter/*.log", "/var/log/promtail/*.log"],
+          (prefix + "-db-server"): ["/var/log/mysql/*.log", "/var/log/node_exporter/*.log", "/var/log/promtail/*.log"],
+          (prefix + "-cache-server"): ["/var/log/redis/*.log", "/var/log/node_exporter/*.log", "/var/log/promtail/*.log"],
+          (prefix + "-ci-cd-server"): ["/var/log/gitea/*.log", "/var/log/jenkins/jenkins.log", "/var/log/node_exporter/*.log", "/var/log/promtail/*.log"],
+          (prefix + "-log-server"): ["/var/log/grafana/*.log", "/var/log/loki/*.log", "/var/log/node_exporter/*.log", "/var/log/promtail/*.log"],
+          (prefix + "-monitoring-server"): ["/var/log/prometheus/*.log", "/var/log/node_exporter/*.log", "/var/log/promtail/*.log"]
+        }
+      }}
+
+
+- name: Render promtail config with correct path
+  template:
+    src: promtail-config.yml.j2
+    dest: "/tmp/promtail-config-{{item}}.yml"
+  vars:
+    log_path: "{{ log_paths[item]}}"
+    promtail_host: "{{item}}"
+  loop: "{{ instance_names }}"
+
+
+- name: Copy promtail config to each instance using gcloud scp
+  shell: |
+    gcloud compute scp /tmp/promtail-config-{{ item }}.yml {{ item }}:/tmp/promtail-config.yml --zone {{ gcp_zone }}
+  loop: "{{ instance_names }}"
+
+
+- name: Copy promtail config and restart promtail
+  shell: >
+    gcloud compute ssh {{ item }} --zone {{ gcp_zone }} 
+    --command 'sudo mv /tmp/promtail-config.yml /etc/promtail-config.yml && sudo supervisorctl restart promtail'
+  loop: "{{ instance_names }}"
+
+
+- name: Delete local temporary files
+  file:
+    path: "/tmp/promtail-config-{{ item }}.yml"
+    state: absent
+  loop: "{{ instance_names }}"

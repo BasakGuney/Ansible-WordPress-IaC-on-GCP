@@ -1,0 +1,98 @@
+- name: Create health check
+  shell: |
+    gcloud compute health-checks create http wp-health-check \
+      --project {{ gcp_project }} \
+      --check-interval 5s \
+      --timeout 5s \
+      --unhealthy-threshold 2 \
+      --healthy-threshold 2 \
+      --port 80 \
+      --request-path /
+  ignore_errors: true
+
+
+- name: Create backend service for external LB
+  shell: |
+    gcloud compute backend-services create wp-backend-service \
+      --project {{ gcp_project }} \
+      --protocol HTTP \
+      --health-checks https://www.googleapis.com/compute/v1/projects/{{ gcp_project }}/global/healthChecks/wp-health-check \
+      --global
+  ignore_errors: true
+
+
+- name: Add instance group to backend service
+  shell: |
+    gcloud compute backend-services add-backend wp-backend-service \
+      --project {{ gcp_project }} \
+      --instance-group wp-group \
+      --instance-group-zone {{ gcp_zone }} \
+      --global
+  ignore_errors: true
+
+
+- name: Reserve global external IP address for LB
+  shell: |
+    gcloud compute addresses create {{ prefix }}-external-lb-ip --global --project {{ gcp_project }}
+  ignore_errors: true
+
+
+- name: Create URL map for external LB
+  shell: |
+    gcloud compute url-maps create wp-url-map \
+      --project {{ gcp_project }} \
+      --default-service https://www.googleapis.com/compute/v1/projects/{{ gcp_project }}/global/backendServices/wp-backend-service
+  ignore_errors: true
+
+
+- name: Create target HTTP proxy for external LB
+  shell: |
+    gcloud compute target-http-proxies create wp-http-proxy \
+      --project {{ gcp_project }} \
+      --url-map wp-url-map
+  ignore_errors: true
+
+
+- name: Create global forwarding rule for external LB
+  shell: |
+    gcloud compute forwarding-rules create wp-external-lb \
+      --project {{ gcp_project }} \
+      --address {{ prefix }}-external-lb-ip \
+      --global \
+      --target-http-proxy wp-http-proxy \
+      --ports 80
+  ignore_errors: true
+
+
+- name: Allow HTTP health checks from Google IP ranges
+  shell: |
+    gcloud compute firewall-rules create allow-health-checks \
+      --direction=INGRESS \
+      --priority=1000 \
+      --network {{ prefix }}-vpc \
+      --action ALLOW \
+      --rules tcp:80 \
+      --source-ranges 130.211.0.0/22,35.191.0.0/16 \
+      --target-tags wordpress \
+      --project {{ gcp_project }}
+  ignore_errors: true
+
+
+- name: Get IP address of forwarding rule 'wp-external-lb'
+  command: >
+    gcloud compute forwarding-rules describe wp-external-lb
+    --format='get(IPAddress)'
+    --global
+  register: wp_external_lb_ip
+  changed_when: false
+
+
+- name: Add WordPress sites to local /etc/hosts
+  become: true
+  become_user: root
+  delegate_to: localhost
+  lineinfile:
+    path: /etc/hosts
+    state: present
+    line: "{{ wp_external_lb_ip.stdout }} {{ wp1_name }}.example.com"
+    regexp: "^{{ wp_external_lb_ip.stdout }} {{ wp1_name }}.example.com$"

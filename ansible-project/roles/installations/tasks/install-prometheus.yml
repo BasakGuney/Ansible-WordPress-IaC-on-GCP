@@ -1,0 +1,16 @@
+- name: Install Prometheus on monitoring server
+  shell: |
+    gcloud compute ssh {{ prefix }}-monitoring-server \
+    --zone {{ gcp_zone }} \
+    --command='
+      sudo useradd --no-create-home --shell /bin/false prometheus || true
+      sudo mkdir -p /etc/prometheus /var/lib/prometheus
+      cd /tmp
+      curl -LO https://github.com/prometheus/prometheus/releases/download/v2.52.0/prometheus-2.52.0.linux-amd64.tar.gz
+      tar -xvf prometheus-2.52.0.linux-amd64.tar.gz
+      cd prometheus-2.52.0.linux-amd64
+      sudo cp prometheus promtool /usr/local/bin/
+      sudo cp -r consoles console_libraries /etc/prometheus/
+      sudo cp prometheus.yml /etc/prometheus/prometheus.yml
+      sudo chown -R prometheus:prometheus /etc/prometheus /var/lib/prometheus
+    '

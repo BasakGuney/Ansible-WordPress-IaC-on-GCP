@@ -1,0 +1,50 @@
+- name: Install unzip and download Promtail via gcloud ssh
+  shell: |
+    gcloud compute ssh {{ item }} --zone {{ gcp_zone }} --command "
+      sudo rm -rf /var/lib/apt/lists/* && \
+      sudo apt-get clean && \
+      sudo apt-get update -y || true && \
+      sudo apt-get install -y unzip wget && \
+      wget -qO promtail.zip https://github.com/grafana/loki/releases/download/v2.9.2/promtail-linux-amd64.zip && \
+      unzip promtail.zip && \
+      sudo mv promtail-linux-amd64 /usr/local/bin/promtail && \
+      sudo chmod +x /usr/local/bin/promtail
+    " --quiet
+  loop: "{{ instance_names }}"
+
+
+- name: Create Promtail supervisor conf
+  template:
+    src: "promtail.conf.j2"
+    dest: "/tmp/promtail.conf"
+
+
+- name: Manage Promtail log directories
+  shell: |
+    gcloud compute ssh {{ item }} \
+      --zone={{ gcp_zone }} \
+      --command="
+        sudo mkdir -p /var/log/promtail &&
+        sudo touch /var/log/promtail/promtail.out.log /var/log/promtail/promtail.err.log &&
+        sudo chown -R root:root /var/log/promtail &&
+        sudo chmod -R 755 /var/log/promtail
+      "
+  loop: "{{ instance_names }}"
+
+
+- name: Copy conf file to remote and move to supervisor conf.d
+  shell: |
+    gcloud compute scp /tmp/promtail.conf {{ item }}:/tmp/ --zone {{ gcp_zone }} &&
+    gcloud compute ssh {{ item }} --zone {{ gcp_zone }} --command='
+      sudo mv /tmp/promtail.conf /etc/supervisor/conf.d/promtail.conf &&
+      sudo supervisorctl reread &&
+      sudo supervisorctl update &&
+      sudo supervisorctl start promtail
+    '
+  loop: "{{ instance_names }}"
+
+
+- name: Delete local temporary Node Exporter service file
+  file:
+    path: /tmp/promtail.conf
+    state: absent

@@ -1,0 +1,87 @@
+- name: Check if Gitea is already installed
+  command: >
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone={{ gcp_zone }} --command='test -x {{ gitea_install_dir }}/gitea'
+  register: gitea_installed
+  failed_when: false
+  changed_when: gitea_installed.rc != 0
+
+
+- name: Install dependencies (git, wget, sqlite3)
+  command: >
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone={{ gcp_zone }} --command='
+      dpkg -s git wget sqlite3 > /dev/null || sudo apt-get update && sudo apt-get install -y git wget sqlite3
+    '
+
+
+- name: Create Gitea user if not exists
+  command: >
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone={{ gcp_zone }} --command='
+      id -u {{ gitea_user }} || sudo adduser --system --shell /bin/bash --gecos "Git Version Control" --group --disabled-password --home {{ gitea_home }} {{ gitea_user }}
+    '
+
+
+- name: Create required directories for Gitea
+  command: >
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone={{ gcp_zone }} --command='
+      sudo mkdir -p {{ gitea_app_dir }}/custom {{ gitea_app_dir }}/data {{ gitea_log_dir }} {{ gitea_custom_dir }} &&
+      sudo chown -R {{ gitea_user }}:{{ gitea_user }} {{ gitea_app_dir }} {{ gitea_log_dir }} {{ gitea_custom_dir }}
+    '
+
+
+- name: Download and install Gitea binary if not already present
+  when: gitea_installed.rc != 0
+  command: >
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone={{ gcp_zone }} --command='
+      wget -O /tmp/gitea https://dl.gitea.io/gitea/{{ gitea_version }}/gitea-{{ gitea_version }}-linux-amd64 &&
+      sudo mv /tmp/gitea {{ gitea_install_dir }}/gitea &&
+      sudo chmod +x {{ gitea_install_dir }}/gitea
+    '
+
+
+- name: Create Gitea supervisor conf
+  template:
+    src: "gitea.conf.j2"
+    dest: "/tmp/gitea.conf"
+
+
+- name: Manage directories for supervisor
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server \
+      --zone={{ gcp_zone }} \
+      --command="
+        sudo mkdir -p /var/log/gitea &&
+        sudo touch /var/log/gitea/gitea.out.log /var/log/gitea/gitea.err.log &&
+        sudo chown -R {{ gitea_user }}:{{ gitea_user }} /var/log/gitea &&
+        sudo chmod -R 755 /var/log/gitea
+      "
+
+
+- name: Copy conf file to remote and move to supervisor conf.d
+  shell: |
+    gcloud compute scp /tmp/gitea.conf {{ prefix }}-ci-cd-server:/tmp/ --zone {{ gcp_zone }} &&
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command='
+      sudo mv /tmp/gitea.conf /etc/supervisor/conf.d/gitea.conf &&
+      sudo supervisorctl reread &&
+      sudo supervisorctl update &&
+      sudo supervisorctl start gitea
+    '
+
+
+- name: Ensure Gitea is running via supervisord
+  command: >
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone={{ gcp_zone }} --command='sudo supervisorctl status gitea'
+  register: gitea_status
+  failed_when: false
+  changed_when: "'RUNNING' not in gitea_status.stdout"
+
+
+- name: Show Gitea status
+  debug:
+    msg: "Gitea is running ✔"
+  when: gitea_status.stdout is search("RUNNING")
+
+
+- name: Delete local temporary Gitea supervisor conf file
+  file:
+    path: /tmp/gitea.conf
+    state: absent

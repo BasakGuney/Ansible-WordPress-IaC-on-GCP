@@ -1,0 +1,141 @@
+- name: Install MySQL server on DB server
+  shell: |
+    gcloud compute ssh {{ prefix }}-db-server --zone={{ gcp_zone }} --command="
+      sudo apt update && sudo apt install -y rsync mysql-server
+    "
+  retries: 5
+  delay: 10
+
+
+- name: Create MySQL supervisor conf
+  template:
+    src: "mysql.conf.j2"
+    dest: "/tmp/mysql.conf"
+
+
+- name: Disable systemd for MySQL and prepare directories
+  shell: |
+    gcloud compute ssh {{ prefix }}-db-server --zone={{ gcp_zone }} --command="
+      sudo systemctl stop mysql || true &&
+      sudo systemctl disable mysql || true &&
+      sudo systemctl mask mysql || true &&
+      sudo mkdir -p /var/log/mysql /var/run/mysqld &&
+      sudo chown -R mysql:mysql /var/log/mysql /var/run/mysqld &&
+      sudo chmod -R 0755 /var/log/mysql /var/run/mysqld
+    "
+
+
+- name: Copy supervisor conf to remote and reload supervisor
+  shell: |
+    gcloud compute scp /tmp/mysql.conf {{ prefix }}-db-server:/tmp/ --zone={{ gcp_zone }} &&
+    gcloud compute ssh {{ prefix }}-db-server --zone={{ gcp_zone }} --command="
+      sudo mv /tmp/mysql.conf /etc/supervisor/conf.d/mysql.conf &&
+      sudo supervisorctl reread &&
+      sudo supervisorctl update &&
+      sudo supervisorctl start mysql
+    "
+
+
+- name: Move MySQL data directory to new disk if not moved already
+  shell: |
+    gcloud compute ssh {{ prefix }}-db-server --zone={{ gcp_zone }} --command="
+      set -e
+      if [ ! -L /var/lib/mysql ]; then
+        sudo mkdir -p /mnt/mysql-data/data
+        sudo rsync -a /var/lib/mysql/ /mnt/mysql-data/data/
+        sudo chown -R mysql:mysql /mnt/mysql-data/data
+        sudo mv /var/lib/mysql /var/lib/mysql.bak
+        sudo ln -s /mnt/mysql-data/data /var/lib/mysql
+      fi
+    "
+  changed_when: false
+
+
+- name: Check if AppArmor profile allows MySQL access to /mnt/mysql-data/data
+  shell: |
+    gcloud compute ssh {{ prefix }}-db-server --zone={{ gcp_zone }} --command="
+      sudo grep -qF '/mnt/mysql-data/data/' /etc/apparmor.d/usr.sbin.mysqld
+    "
+  register: apparmor_profile_check
+  failed_when: false
+  changed_when: apparmor_profile_check.rc != 0
+
+
+- name: Patch AppArmor profile line 1 if missing
+  shell: |
+    gcloud compute ssh {{ prefix }}-db-server --zone={{ gcp_zone }} --command="
+      if ! sudo grep -qF '/mnt/mysql-data/data/ r,' /etc/apparmor.d/usr.sbin.mysqld; then
+        sudo sed -i '/^}/i /mnt/mysql-data/data/ r,' /etc/apparmor.d/usr.sbin.mysqld
+      fi
+    "
+  register: apparmor_patch_line1
+  changed_when: >
+    (apparmor_patch_line1.stdout is defined and apparmor_patch_line1.stdout != '') or
+    (apparmor_patch_line1.rc is defined and apparmor_patch_line1.rc == 0)
+
+
+- name: Patch AppArmor profile line 2 if missing
+  shell: |
+    gcloud compute ssh {{ prefix }}-db-server --zone={{ gcp_zone }} --command="
+      if ! sudo grep -qF '/mnt/mysql-data/data/** rwk,' /etc/apparmor.d/usr.sbin.mysqld; then
+        sudo sed -i '/^}/i /mnt/mysql-data/data/** rwk,' /etc/apparmor.d/usr.sbin.mysqld
+      fi
+    "
+  register: apparmor_patch_line2
+  changed_when: >
+    (apparmor_patch_line2.stdout is defined and apparmor_patch_line2.stdout != '') or
+    (apparmor_patch_line2.rc is defined and apparmor_patch_line2.rc == 0)
+
+
+- name: Reload AppArmor profile and restart MySQL if patched
+  shell: |
+    gcloud compute ssh {{ prefix }}-db-server --zone={{ gcp_zone }} --command="
+      sudo apparmor_parser -r /etc/apparmor.d/usr.sbin.mysqld &&
+      sudo supervisorctl restart mysql
+    "
+  when: apparmor_patch_line1.changed or apparmor_patch_line2.changed
+
+
+- name: Check if MySQL root can login without password
+  shell: |
+    gcloud compute ssh {{ prefix }}-db-server --zone={{ gcp_zone }} --command="sudo mysql -u root -e 'SELECT 1;'"
+  register: mysql_root_no_pass
+  failed_when: false
+  changed_when: mysql_root_no_pass.rc != 0
+
+
+- name: Set MySQL root authentication to auth_socket if login fails
+  shell: |
+    gcloud compute ssh {{ prefix }}-db-server --zone={{ gcp_zone }} --command="
+      sudo mysql -e \"ALTER USER 'root'@'localhost' IDENTIFIED WITH auth_socket; FLUSH PRIVILEGES;\"
+    "
+  when: mysql_root_no_pass.rc != 0
+
+
+- name: Create WordPress databases and users
+  shell: |
+    gcloud compute ssh {{ prefix }}-db-server --zone={{ gcp_zone }} --command="
+      sudo mysql -e \"
+        CREATE DATABASE IF NOT EXISTS {{ wp1_db_name }};
+        CREATE DATABASE IF NOT EXISTS {{ wp2_db_name }};
+        CREATE USER IF NOT EXISTS '{{ wp1_username }}'@'%' IDENTIFIED BY '{{ wp1_db_password }}';
+        CREATE USER IF NOT EXISTS '{{ wp2_username }}'@'%' IDENTIFIED BY '{{ wp2_db_password }}';
+        GRANT ALL PRIVILEGES ON {{ wp1_db_name }}.* TO '{{ wp1_username }}'@'%';
+        GRANT ALL PRIVILEGES ON {{ wp2_db_name }}.* TO '{{ wp2_username }}'@'%';
+        FLUSH PRIVILEGES;
+      \"
+    "
+
+
+- name: Allow remote MySQL connections (bind-address = 0.0.0.0)
+  shell: |
+    gcloud compute ssh {{ prefix }}-db-server --zone={{ gcp_zone }} --command="
+      sudo sed -i 's/^bind-address.*/bind-address = 0.0.0.0/' /etc/mysql/mysql.conf.d/mysqld.cnf &&
+      sudo supervisorctl restart mysql
+    "
+
+
+- name: Delete local temporary supervisor conf file
+  file:
+    path: /tmp/mysql.conf
+    state: absent

@@ -1,0 +1,38 @@
+- name: Create MySQL persistent disk (20GB, if not exists)
+  command: >
+    gcloud compute disks create mysql-data-disk
+    --size=10GB
+    --zone={{ gcp_zone }}
+    --type=pd-ssd
+  register: mysql_disk_create
+  failed_when: false
+  changed_when: "'already exists' not in mysql_disk_create.stderr"
+
+
+- name: Attach MySQL disk to DB server (if not attached)
+  command: >
+    gcloud compute instances attach-disk {{ prefix }}-db-server
+    --disk=mysql-data-disk
+    --device-name=mysql-data-disk
+    --zone={{ gcp_zone }}
+  register: mysql_disk_attach
+  failed_when: false
+  changed_when: "'is already attached' not in mysql_disk_attach.stderr"
+
+
+- name: Format and mount MySQL disk
+  shell: |
+    gcloud compute ssh {{ prefix }}-db-server --zone={{ gcp_zone }} --command "
+      set -e
+
+      # Format if not already
+      if ! sudo blkid /dev/sdb; then
+        sudo mkfs.ext4 -F /dev/sdb
+      fi
+
+      # Mount if not already mounted
+      sudo mkdir -p /mnt/mysql-data
+      grep -q '/mnt/mysql-data' /etc/fstab || echo '/dev/sdb /mnt/mysql-data ext4 defaults 0 2' | sudo tee -a /etc/fstab
+      mountpoint -q /mnt/mysql-data || sudo mount /mnt/mysql-data
+    "
+  changed_when: false

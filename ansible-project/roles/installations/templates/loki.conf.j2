@@ -1,0 +1,8 @@
+[program:loki]
+command=/usr/local/bin/loki -config.file=/etc/loki-config.yaml
+autostart=true
+autorestart=true
+startsecs=5
+user=root
+stdout_logfile=/var/log/loki/loki.out.log
+stderr_logfile=/var/log/loki/loki.err.log

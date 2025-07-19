@@ -1,0 +1,51 @@
+- name: Download and install Node Exporter binary
+  shell: |
+    gcloud compute ssh {{ item }} \
+    --zone {{ gcp_zone }} \
+    --command='
+      NODE_EXPORTER_VERSION="1.8.1"
+      cd /tmp &&
+      wget -q https://github.com/prometheus/node_exporter/releases/download/v${NODE_EXPORTER_VERSION}/node_exporter-${NODE_EXPORTER_VERSION}.linux-amd64.tar.gz &&
+      tar -xzf node_exporter-${NODE_EXPORTER_VERSION}.linux-amd64.tar.gz &&
+      sudo mv node_exporter-${NODE_EXPORTER_VERSION}.linux-amd64/node_exporter /usr/local/bin/ &&
+      rm -rf node_exporter-${NODE_EXPORTER_VERSION}.linux-amd64* &&
+      sudo useradd -rs /bin/false node_exporter || true
+    '
+  loop: "{{ instance_names }}"
+
+
+- name: Copy supervisor conf to related servers
+  template:
+    src: "node-exporter.conf.j2"
+    dest: "/tmp/node_exporter.conf"
+
+
+- name: Create log directories and empty log files on all servers
+  shell: |
+    gcloud compute ssh {{ item }} \
+      --zone={{ gcp_zone }} \
+      --command="
+        sudo mkdir -p /var/log/node_exporter &&
+        sudo touch /var/log/node_exporter/node_exporter.out.log /var/log/node_exporter/node_exporter.err.log &&
+        sudo chown -R node_exporter:node_exporter /var/log/node_exporter &&
+        sudo chmod -R 755 /var/log/node_exporter
+      "
+  loop: "{{ instance_names }}"
+
+
+- name: Copy conf file to remote and move to supervisor conf.d
+  shell: |
+    gcloud compute scp /tmp/node_exporter.conf {{ item }}:/tmp/ --zone {{ gcp_zone }} &&
+    gcloud compute ssh {{ item }} --zone {{ gcp_zone }} --command='
+      sudo mv /tmp/node_exporter.conf /etc/supervisor/conf.d/node_exporter.conf &&
+      sudo supervisorctl reread &&
+      sudo supervisorctl update &&
+      sudo supervisorctl start node_exporter
+    '
+  loop: "{{ instance_names }}"
+
+
+- name: Delete local temporary Node Exporter service file
+  file:
+    path: /tmp/node_exporter.conf
+    state: absent

@@ -1,0 +1,35 @@
+- name: Install supervisor on all servers
+  shell: |
+    gcloud compute ssh {{ item }} --zone {{ gcp_zone }} --command='
+      sudo apt-get update &&
+      sudo apt-get install -y supervisor
+    '
+  loop: "{{ instance_names }}"
+
+
+- name: Deploy supervisord web UI config template locally
+  template:
+    src: supervisord_ui.conf.j2
+    dest: "/tmp/supervisord_ui.conf"
+
+
+- name: Copy supervisord UI config to all servers
+  shell: |
+    gcloud compute scp /tmp/supervisord_ui.conf {{ app_server_user }}@{{ item }}:/tmp/ --zone {{ gcp_zone }}
+  loop: "{{ instance_names }}"
+
+
+- name: Append supervisord web UI config to main supervisord.conf and restart service
+  shell: |
+    gcloud compute ssh {{ item }} --zone {{ gcp_zone }} --command='
+      sudo bash -c "grep -q -F \"[inet_http_server]\" /etc/supervisor/supervisord.conf || cat /tmp/supervisord_ui.conf >> /etc/supervisor/supervisord.conf" &&
+      sudo supervisorctl reread &&
+      sudo systemctl enable supervisor &&
+      sudo systemctl restart supervisor
+    '
+  loop: "{{ instance_names }}"
+
+
+
+
+

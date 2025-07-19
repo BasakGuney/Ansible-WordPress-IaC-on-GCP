@@ -1,0 +1,54 @@
+- name: Add Grafana APT key and repo and install Grafana
+  shell: |
+    gcloud compute ssh {{prefix}}-log-server --zone {{gcp_zone}} --command "
+      sudo apt-get update && \
+      sudo apt-get install -y apt-transport-https curl gnupg && \
+      sudo mkdir -p /etc/apt/keyrings && \
+      curl -fsSL https://apt.grafana.com/gpg.key | sudo gpg --dearmor  --batch --yes -o /etc/apt/keyrings/grafana.gpg && \
+      echo 'deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main' | sudo tee /etc/apt/sources.list.d/grafana.list && \
+      sudo apt-get update && sudo apt-get install -y grafana
+    "
+
+
+- name: Create Grafana supervisor conf
+  template:
+    src: "grafana.conf.j2"
+    dest: "/tmp/grafana.conf"
+
+
+- name: Disable systemd for Grafana and manage directories
+  shell: |
+    gcloud compute ssh {{ prefix }}-log-server \
+      --zone={{ gcp_zone }} \
+      --command="
+        (sudo systemctl stop grafana-server || true) &&
+        (sudo systemctl disable grafana-server || true) &&
+        (sudo systemctl mask grafana-server || true) &&
+        sudo mkdir -p /var/log/grafana &&
+        sudo touch /var/log/grafana/grafana.out.log /var/log/grafana/grafana.err.log &&
+        sudo chown -R grafana:grafana /var/log/grafana &&
+        sudo chmod -R 755 /var/log/grafana &&
+        sudo mkdir -p /usr/share/grafana/data &&
+        sudo chown -R grafana:grafana /usr/share/grafana/data &&
+        sudo chmod 750 /usr/share/grafana/data &&
+        sudo chown -R grafana:grafana /var/lib/grafana
+
+      "
+
+
+- name: Copy conf file to remote and move to supervisor conf.d
+  shell: |
+    gcloud compute scp /tmp/grafana.conf {{ prefix }}-log-server:/tmp/ --zone {{ gcp_zone }} &&
+    gcloud compute ssh {{ prefix }}-log-server --zone {{ gcp_zone }} --command='
+      sudo mv /tmp/grafana.conf /etc/supervisor/conf.d/grafana.conf &&
+      sudo supervisorctl reread &&
+      sudo supervisorctl update &&
+      sudo supervisorctl start grafana
+    '
+
+
+- name: Delete local temporary supervisord conf file
+  file:
+    path: /tmp/grafana.conf
+    state: absent
+

@@ -1,0 +1,64 @@
+- name: Define WordPress sites
+  set_fact:
+    wp_sites:
+      - name: "{{ wp1_name }}"
+        port: 9114
+      - name: "{{ wp2_name }}"
+        port: 9115
+
+
+- name: Download nginx-prometheus-exporter tarball
+  shell: |
+    gcloud compute ssh {{ prefix }}-app-server --zone={{ gcp_zone }} --command='
+      wget -O /tmp/nginx-prometheus-exporter.tar.gz https://github.com/nginx/nginx-prometheus-exporter/releases/download/v1.4.2/nginx-prometheus-exporter_1.4.2_linux_amd64.tar.gz
+    '
+
+
+- name: Extract exporter binary
+  shell: |
+    gcloud compute ssh {{ prefix }}-app-server --zone={{ gcp_zone }} --command='
+      sudo mkdir -p /opt/nginx_exporter &&
+      sudo tar -xzf /tmp/nginx-prometheus-exporter.tar.gz -C /opt/nginx_exporter && 
+      sudo chmod +x /opt/nginx_exporter/nginx-prometheus-exporter && 
+      sudo mv /opt/nginx_exporter/nginx-prometheus-exporter /usr/local/bin/nginx-prometheus-exporter && 
+      sudo chmod +x /usr/local/bin/nginx-prometheus-exporter
+    '
+
+
+- name: Copy supervisor conf to server
+  template:
+    src: "nginx-exporter.conf.j2"
+    dest: "/tmp/{{ item.name }}_nginx_exporter.conf"
+  loop: "{{ wp_sites }}"
+
+
+- name: Create log directories and empty log files on server
+  shell: |
+    gcloud compute ssh {{ prefix }}-app-server \
+      --zone={{ gcp_zone }} \
+      --command="
+        sudo mkdir -p /var/log/{{ item.name }}_nginx_exporter &&
+        sudo touch /var/log/{{ item.name }}_nginx_exporter/{{ item.name }}_nginx_exporter.out.log /var/log/{{ item.name }}_nginx_exporter/{{ item.name }}_nginx_exporter.err.log &&
+        sudo chown -R root:root /var/log/{{ item.name }}_nginx_exporter &&
+        sudo chmod -R 755 /var/log/{{ item.name }}_nginx_exporter
+      "
+  loop: "{{ wp_sites }}"
+
+
+- name: Copy conf file to remote and move to supervisor conf.d
+  shell: |
+    gcloud compute scp /tmp/{{ item.name }}_nginx_exporter.conf {{ prefix }}-app-server:/tmp/ --zone {{ gcp_zone }} &&
+    gcloud compute ssh {{ prefix }}-app-server --zone {{ gcp_zone }} --command='
+      sudo mv /tmp/{{ item.name }}_nginx_exporter.conf /etc/supervisor/conf.d/{{ item.name }}_nginx_exporter.conf &&
+      sudo supervisorctl reread &&
+      sudo supervisorctl update &&
+      sudo supervisorctl start {{ item.name }}_nginx_exporter
+    '
+  loop: "{{ wp_sites }}"
+
+
+- name: Delete local temporary Node Exporter service file
+  file:
+    path: /tmp/{{ item.name }}_nginx_exporter.conf
+    state: absent
+  loop: "{{ wp_sites }}"

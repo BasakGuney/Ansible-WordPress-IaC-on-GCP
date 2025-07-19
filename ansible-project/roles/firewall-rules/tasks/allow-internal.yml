@@ -1,0 +1,15 @@
+- name: Create allow internal ingress firewall rule
+  google.cloud.gcp_compute_firewall:
+    auth_kind: serviceaccount
+    service_account_file: "{{ gcp_credentials_file }}"
+    project: "{{ gcp_project }}"
+    name: "{{prefix}}-allow-internal"
+    network:
+      selfLink: "https://www.googleapis.com/compute/v1/projects/{{gcp_project}}/global/networks/{{network_name}}"
+    direction: INGRESS
+    priority: 1000
+    allowed:
+      - ip_protocol: all
+    source_ranges:
+      - 10.10.0.0/24
+    state: present

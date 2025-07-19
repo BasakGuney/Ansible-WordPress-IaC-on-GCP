@@ -1,0 +1,8 @@
+[program:promtail]
+command=/usr/local/bin/promtail -config.file=/etc/promtail-config.yml
+autostart=true
+autorestart=true
+startsecs=5
+stderr_logfile=/var/log/promtail/promtail.err.log
+stdout_logfile=/var/log/promtail/promtail.out.log
+user=root

@@ -1,0 +1,8 @@
+- name: Create custom VPC
+  google.cloud.gcp_compute_network:
+    auth_kind: serviceaccount
+    service_account_file: "{{ gcp_credentials_file }}"
+    project: "{{ gcp_project }}"
+    name: "{{ network_name }}"
+    auto_create_subnetworks: "{{ network_auto_create_subnetworks }}"
+    state: present

@@ -1,0 +1,44 @@
+- name: Download Loki dashboard JSON to control machine
+  get_url:
+    url: https://grafana.com/api/dashboards/13639/revisions/2/download
+    dest: /tmp/loki_dashboard.json
+    mode: '0644'
+
+
+- name: Prepare Grafana dashboard import JSON
+  copy:
+    dest: /tmp/import_loki_dashboard.json
+    content: |
+      {
+        "dashboard": {{ lookup('file', '/tmp/loki_dashboard.json') | from_json | to_json }},
+        "overwrite": true,
+        "inputs": [
+          {
+            "name": "DS_LOKI",
+            "type": "datasource",
+            "pluginId": "loki",
+            "value": "Loki"
+          }
+        ]
+      }
+
+
+- name: Copy dashboard JSON to Grafana server via gcloud
+  shell: >
+    gcloud compute scp /tmp/import_loki_dashboard.json {{ prefix }}-log-server:/tmp/import_loki_dashboard.json --zone {{ gcp_zone }}
+
+
+- name: Import dashboard into Grafana via API
+  shell: >
+    gcloud compute ssh {{ prefix }}-log-server --zone {{ gcp_zone }} --command '
+    curl -s -X POST http://localhost:3000/api/dashboards/import \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Basic {{ admin_basic_auth }}" \
+      -d @/tmp/import_loki_dashboard.json
+    '
+  register: loki_dashboard_upload_response
+
+
+- name: Show dashboard import result
+  debug:
+    var: loki_dashboard_upload_response.stdout

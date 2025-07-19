@@ -1,0 +1,96 @@
+- name: Create Groovy script to configure Jenkins security locally
+  copy:
+    dest: "./basic-security.groovy"
+    content: |
+      import jenkins.model.*
+      import hudson.security.*
+
+      def instance = Jenkins.getInstance()
+      def hudsonRealm = new HudsonPrivateSecurityRealm(false)
+      hudsonRealm.createAccount("{{ jenkins_admin_user }}", "{{ jenkins_admin_password }}")
+      instance.setSecurityRealm(hudsonRealm)
+
+      def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
+      strategy.setAllowAnonymousRead(false)
+      instance.setAuthorizationStrategy(strategy)
+
+      instance.save()
+
+
+- name: Disable Jenkins Setup Wizard in /etc/default/jenkins
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command '
+      if grep -q "jenkins.install.runSetupWizard" /etc/default/jenkins; then
+        sudo sed -i "s/^JAVA_ARGS=.*/JAVA_ARGS=\"-Djenkins.install.runSetupWizard=false\"/" /etc/default/jenkins
+      else
+        echo "JAVA_ARGS=\"-Djenkins.install.runSetupWizard=false\"" | sudo tee -a /etc/default/jenkins
+      fi
+    '
+
+
+- name: Move Groovy script to init.groovy.d on Jenkins server
+  shell: |
+    gcloud compute scp ./basic-security.groovy {{ prefix }}-ci-cd-server:/tmp/basic-security.groovy --zone {{ gcp_zone }} && \
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command '
+      sudo mkdir -p /var/lib/jenkins/init.groovy.d && \
+      sudo mv /tmp/basic-security.groovy /var/lib/jenkins/init.groovy.d/basic-security.groovy && \
+      sudo chown jenkins:jenkins /var/lib/jenkins/init.groovy.d/basic-security.groovy
+    '
+
+
+- name: Restart Jenkins to apply Groovy security config
+  shell: >
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command 'sudo supervisorctl restart jenkins'
+
+
+- name: Remove temporary local Groovy file
+  file:
+    path: "./basic-security.groovy"
+    state: absent
+
+
+- name: Install Jenkins plugins
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command '
+      for plugin in {{ jenkins_plugin_list | join(" ") }}; do
+        sudo /usr/local/bin/jenkins-plugin-cli  --plugins "$plugin" || true
+      done
+      sudo cp -r /usr/share/jenkins/ref/plugins/* /var/lib/jenkins/plugins/
+      sudo chown -R jenkins:jenkins /var/lib/jenkins/plugins
+    '
+
+
+- name: Create Groovy script to set Jenkins URL
+  copy:
+    dest: "./set_jenkins_url.groovy"
+    content: |
+      import jenkins.model.*
+      import hudson.model.*
+
+      def instance = Jenkins.getInstance()
+      def locationConfig = JenkinsLocationConfiguration.get()
+      locationConfig.setUrl("http://{{ci_cd_server_internal_ip}}:8080")
+      locationConfig.save()
+      println("Jenkins URL set to {{ci_cd_server_internal_ip}}")
+
+
+- name: Upload Groovy script to CI/CD server
+  shell: |
+    gcloud compute scp set_jenkins_url.groovy {{ prefix }}-ci-cd-server:/tmp/set_jenkins_url.groovy --zone {{ gcp_zone }}
+
+
+- name: Move Groovy script to Jenkins init directory
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command \
+    "sudo mv /tmp/set_jenkins_url.groovy /var/lib/jenkins/init.groovy.d/set_jenkins_url.groovy && sudo chown jenkins:jenkins /var/lib/jenkins/init.groovy.d/set_jenkins_url.groovy"
+
+
+- name: Restart Jenkins service
+  shell: |
+    gcloud compute ssh {{ prefix }}-ci-cd-server --zone {{ gcp_zone }} --command "sudo supervisorctl restart jenkins"
+
+
+- name: Remove temporary local Groovy file
+  file:
+    path: "./set_jenkins_url.groovy"
+    state: absent

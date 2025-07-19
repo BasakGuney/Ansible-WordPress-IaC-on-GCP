@@ -1,0 +1,63 @@
+- name: Copy folder creation JSON to log server
+  template:
+    src: create-alerts-folder.json.j2
+    dest: /tmp/create-alerts-folder.json
+
+
+- name: Copy alerts folder creation JSON to log server
+  shell: |
+    gcloud compute scp /tmp/create-alerts-folder.json {{prefix}}-log-server:/tmp/create-alerts-folder.json --zone {{gcp_zone}}
+
+
+- name: Create Alerts folder in Grafana (ignore if exists)
+  shell: |
+    gcloud compute ssh {{ prefix }}-log-server --zone {{ gcp_zone }} --command '
+      curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3000/api/folders \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Basic {{ admin_basic_auth }}" \
+        -d @/tmp/create-alerts-folder.json
+    '
+  register: create_folder_response
+  changed_when: create_folder_response.stdout != "412"  
+
+
+- name: Get Loki datasource UID from Grafana
+  shell: |
+    gcloud compute ssh {{ prefix }}-log-server --zone {{ gcp_zone }} --command '
+      curl -s -H "Authorization: Basic {{ admin_basic_auth }}" http://localhost:3000/api/datasources \
+      | jq -r ".[] | select(.type==\"loki\") | .uid"
+    '
+  register: loki_uid_result
+  changed_when: false
+
+
+- name: Set Loki UID fact
+  set_fact:
+    loki_datasource_uid: "{{ loki_uid_result.stdout }}"
+
+
+- name: Render app alert rule JSON
+  template:
+    src: app-alert.json.j2
+    dest: /tmp/app-alert.json
+
+
+- name: Copy alerts rule to server
+  shell: |
+    gcloud compute scp /tmp/app-alert.json {{prefix}}-log-server:/tmp/app-alert.json --zone {{gcp_zone}}
+
+
+- name: Upload app alert to Grafana
+  shell: |
+    gcloud compute ssh {{ prefix }}-log-server --zone {{ gcp_zone }} --command '
+      curl -s -X POST http://localhost:3000/api/v1/provisioning/alert-rules \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Basic {{ admin_basic_auth }}" \
+        --data-binary @/tmp/app-alert.json
+    '
+  register: app_alert_response
+
+
+- name: Show alert creation response
+  debug:
+    var: app_alert_response.stdout

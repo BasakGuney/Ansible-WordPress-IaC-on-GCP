@@ -1,0 +1,7 @@
+[program:{{ item.name }}_nginx_exporter]
+command=/usr/local/bin/nginx-prometheus-exporter --nginx.scrape-uri=http://127.0.0.1/stub_status_{{ item.name }} --web.listen-address=:{{ item.port }}
+user=root
+autostart=true
+autorestart=true
+stdout_logfile=/var/log/{{ item.name }}_nginx_exporter/{{ item.name }}_nginx_exporter.out.log
+stderr_logfile=/var/log/{{ item.name }}_nginx_exporter/{{ item.name }}_nginx_exporter.err.log

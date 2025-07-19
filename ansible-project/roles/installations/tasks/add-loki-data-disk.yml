@@ -1,0 +1,65 @@
+- name: Check if persistent disk for Loki exists
+  command: >
+    gcloud compute disks describe loki-data-disk
+    --zone={{ gcp_zone }}
+  register: loki_disk_check
+  failed_when: loki_disk_check.rc != 0 and 'was not found' not in loki_disk_check.stderr
+  changed_when: false
+  ignore_errors: true
+
+
+- name: Actually create Loki disk if it doesn't exist
+  command: >
+    gcloud compute disks create loki-data-disk
+    --size=10GB
+    --zone={{ gcp_zone }}
+    --type=pd-ssd
+  when: loki_disk_check.rc != 0
+  register: create_disk_result
+
+
+- name: Check if disk is already attached
+  command: >
+    gcloud compute instances describe {{ prefix }}-log-server
+    --zone={{ gcp_zone }}
+    --format='get(disks.deviceName)'
+  register: attached_disks
+  changed_when: false
+
+
+- name: Attach disk to log server (only if not already attached)
+  command: >
+    gcloud compute instances attach-disk {{ prefix }}-log-server
+    --disk=loki-data-disk
+    --device-name=loki-data-disk
+    --zone={{ gcp_zone }}
+  when: "'loki-data-disk' not in attached_disks.stdout"
+
+
+- name: Format and mount Loki disk on log server
+  shell: |
+    gcloud compute ssh {{ prefix }}-log-server --zone={{ gcp_zone }} --command "
+      if ! sudo lsblk -dn -o NAME | grep -q '^sdb$'; then
+        echo 'Disk not attached'
+        exit 1
+      fi
+
+      if ! sudo blkid /dev/sdb; then
+        echo 'Formatting /dev/sdb...'
+        sudo mkfs.ext4 -F /dev/sdb
+      fi
+
+      sudo mkdir -p /mnt/loki-data
+      grep -q '/mnt/loki-data' /etc/fstab || echo '/dev/sdb /mnt/loki-data ext4 defaults 0 2' | sudo tee -a /etc/fstab
+      sudo mountpoint -q /mnt/loki-data || sudo mount -a
+    "
+
+
+- name: Create Loki data directories on mounted disk
+  shell: |
+    gcloud compute ssh {{ prefix }}-log-server --zone={{ gcp_zone }} --command "
+      for dir in index cache chunks compactor; do
+        sudo mkdir -p /mnt/loki-data/\$dir
+      done
+      sudo chown -R root:root /mnt/loki-data
+    "

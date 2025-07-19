@@ -1,0 +1,22 @@
+
+- name: Install NFS server on master wp
+  shell: |
+    gcloud compute ssh {{ prefix }}-app-server --zone {{ gcp_zone }} --command "
+      sudo apt-get update &&
+      sudo apt-get install -y nfs-kernel-server
+    "
+
+
+- name: Configure /etc/exports on master with two lines in one echo
+  shell: >
+    gcloud compute ssh {{ prefix }}-app-server
+    --zone {{ gcp_zone }}
+    --command 'sudo bash -c "echo -e \"/var/www/{{ wp1_name }} *(rw,sync,no_subtree_check,no_root_squash)\\n/etc/nginx/sites-available *(rw,sync,no_subtree_check,no_root_squash)\" > /etc/exports"'
+
+
+- name: Restart and enable NFS server
+  shell: |
+    gcloud compute ssh {{ prefix }}-app-server --zone {{ gcp_zone }} --command "
+      sudo systemctl restart nfs-kernel-server &&
+      sudo systemctl enable nfs-kernel-server
+    "

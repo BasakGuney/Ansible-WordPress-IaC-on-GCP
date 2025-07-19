@@ -1,0 +1,75 @@
+{
+  "uid": "aepb14svwjv28a",
+  "title": "cpu-alert-rule",
+  "ruleGroup": "alert",
+  "folderUID": "alerts-folder",
+  "condition": "C",
+  "noDataState": "NoData",
+  "execErrState": "Error",
+  "for": "1m",
+  "keep_firing_for": "0s",
+  "isPaused": false,
+  "data": [
+    {
+      "refId": "A",
+      "queryType": "",
+      "relativeTimeRange": {
+        "from": 600,
+        "to": 0
+      },
+      "datasourceUid": "{{prometheus_datasource_uid}}",
+      "model": {
+        "refId": "A",
+        "expr": "100 - (avg by(instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100)",
+        "editorMode": "code",
+        "instant": true,
+        "intervalMs": 1000,
+        "legendFormat": "__auto",
+        "maxDataPoints": 43200,
+        "range": false
+      }
+    },
+    {
+      "refId": "C",
+      "queryType": "",
+      "relativeTimeRange": {
+        "from": 0,
+        "to": 0
+      },
+      "datasourceUid": "__expr__",
+      "model": {
+        "refId": "C",
+        "type": "threshold",
+        "expression": "A",
+        "intervalMs": 1000,
+        "maxDataPoints": 43200,
+        "conditions": [
+          {
+            "type": "query",
+            "evaluator": {
+              "type": "gt",
+              "params": [90]
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": ["C"]
+            },
+            "reducer": {
+              "type": "last",
+              "params": []
+            }
+          }
+        ],
+        "datasource": {
+          "type": "__expr__",
+          "uid": "__expr__"
+        }
+      }
+    }
+  ],
+  "notification_settings": {
+    "receiver": "grafana-default-email"
+  }
+}

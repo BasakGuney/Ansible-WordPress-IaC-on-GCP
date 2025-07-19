@@ -1,0 +1,149 @@
+instance_names:
+  - "{{prefix}}-app-server"
+  - "{{prefix}}-ci-cd-server"
+  - "{{prefix}}-db-server"
+  - "{{prefix}}-log-server"
+  - "{{prefix}}-monitoring-server"
+  - "{{prefix}}-cache-server"
+
+
+# wp name
+wp1_name: "wp1"
+wp2_name: "wp2"
+
+
+# wp admin configs
+wp1_admin_username: "admin1"
+wp2_admin_username: "admin2"
+wp1_admin_password: "StrongPass1!"
+wp2_admin_password: "StrongPass2!"
+wp1_admin_email: "{{ e_mail }}"
+wp2_admin_email: "{{ e_mail }}"
+
+
+# wp db configs
+wp1_db_name: "wp1db"
+wp2_db_name: "wp2db"
+wp1_username: "wp1user"
+wp2_username: "wp2user"
+wp1_db_password: "password1"
+wp2_db_password: "password2"
+redis_password: "password"
+
+
+# gitea configs
+gitea_version: "1.23.6"  
+gitea_user: gitea
+gitea_home: /home/gitea
+gitea_install_dir: /usr/local/bin
+gitea_app_dir: /var/lib/gitea
+gitea_custom_dir: /etc/gitea
+gitea_log_dir: /var/log/gitea
+gitea_admin_name: admin
+gitea_admin_email: "{{ e_mail }}"
+gitea_admin_password: "admin-pass"
+
+
+# jenkins
+jenkins_admin_user: admin
+jenkins_admin_password: admin123
+jenkins_admin_email: "{{ e_mail }}"
+jenkins_plugin_list:
+  - git
+  - workflow-aggregator
+  - pipeline
+  - ssh-agent
+  - credentials
+  - scm-api
+  - generic-webhook-trigger
+  - ansicolor 
+  - warnings-ng 
+  - workspace-cleanup
+
+# if you would like to use Semgrep App create token in app and paste it here.
+semgrep_token: "27c27646afcf16651c80cf7320ceb418bbae4abc20ebfe974bf8b4661461c6ae"
+
+
+# logrotate
+logrotate_services:
+  nginx:
+    retention: 14
+    user: root
+    group: adm
+    servers:
+      - "{{ prefix }}-app-server"
+  redis:
+    retention: 7
+    user: redis
+    group: redis
+    servers:
+      - "{{ prefix }}-cache-server"
+  mysql:
+    retention: 7
+    user: mysql
+    group: mysql
+    servers:
+      - "{{ prefix }}-db-server"
+  supervisor:
+    retention: 7
+    user: root
+    group: root
+    servers:
+      - "{{ prefix }}-app-server"
+      - "{{ prefix }}-cache-server"
+      - "{{ prefix }}-db-server"
+      - "{{ prefix }}-ci-cd-server"
+      - "{{ prefix }}-monitoring-server"
+      - "{{ prefix }}-log-server"
+  node_exporter:
+    retention: 7
+    user: node_exporter
+    group: node_exporter
+    servers:
+      - "{{ prefix }}-app-server"
+      - "{{ prefix }}-cache-server"
+      - "{{ prefix }}-db-server"
+      - "{{ prefix }}-ci-cd-server"
+      - "{{ prefix }}-monitoring-server"
+      - "{{ prefix }}-log-server"
+  promtail:
+    retention: 7
+    user: root
+    group: root
+    servers:
+      - "{{ prefix }}-app-server"
+      - "{{ prefix }}-cache-server"
+      - "{{ prefix }}-db-server"
+      - "{{ prefix }}-ci-cd-server"
+      - "{{ prefix }}-monitoring-server"
+      - "{{ prefix }}-log-server"
+  gitea:
+    retention: 30
+    user: gitea
+    group: gitea
+    servers:
+      - "{{ prefix }}-ci-cd-server"
+  jenkins:
+    retention: 30
+    user: jenkins
+    group: jenkins
+    servers:
+      - "{{ prefix }}-ci-cd-server"
+  prometheus:
+    retention: 15
+    user: prometheus
+    group: prometheus
+    servers:
+      - "{{ prefix }}-monitoring-server"
+  grafana:
+    retention: 15
+    user: grafana
+    group: grafana
+    servers:
+      - "{{ prefix }}-log-server"
+  loki:
+    retention: 15
+    user: root
+    group: root
+    servers:
+      - "{{ prefix }}-log-server"

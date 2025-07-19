@@ -1,0 +1,10 @@
+[program:redis]
+command=/usr/bin/redis-server /etc/redis/redis.conf
+user=redis
+autostart=true
+autorestart=true
+stopsignal=TERM
+stdout_logfile=/var/log/redis/redis.log
+stderr_logfile=/var/log/redis/redis_error.log
+directory=/var/lib/redis
+priority=10

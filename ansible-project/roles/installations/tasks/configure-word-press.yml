@@ -1,0 +1,108 @@
+- name: Get DB server instance info
+  google.cloud.gcp_compute_instance_info:
+    project: "{{ gcp_project }}"
+    zone: "{{ gcp_zone }}"
+    auth_kind: serviceaccount
+    service_account_file: "{{ gcp_credentials_file }}"
+    filters:
+      - "name = {{ prefix }}-db-server"
+  register: db_instance_info
+
+
+- name: Set DB server internal IP fact
+  set_fact:
+    db_server_internal_ip: "{{ db_instance_info.resources[0].networkInterfaces[0].networkIP }}"
+
+
+- name: Install wp-cli on app server
+  shell: |
+    gcloud compute ssh {{ prefix }}-app-server --zone {{ gcp_zone }} --command '
+      curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar &&
+      chmod +x wp-cli.phar &&
+      sudo mv wp-cli.phar /usr/local/bin/wp
+    '
+
+
+- name: Configure wp-config.php for each site if missing
+  shell: |
+    gcloud compute ssh {{ prefix }}-app-server --zone {{ gcp_zone }} --command '
+      if [ ! -f /var/www/{{ item.name }}/wp-config.php ]; then
+        sudo wp config create \
+          --dbname={{ item.db_name }} \
+          --dbuser={{ item.db_user }} \
+          --dbpass={{ item.db_pass }} \
+          --dbhost={{ db_server_internal_ip }} \
+          --path=/var/www/{{ item.name }} \
+          --allow-root \
+          --skip-check;
+      else
+        echo "wp-config.php already exists. Skipping.";
+      fi
+    '
+  loop: "{{ wp_sites }}"
+  register: wp_config_outputs
+  changed_when: false
+  loop_control:
+    label: "{{ item.name }}"
+
+
+- name: Install WordPress core if not installed
+  shell: >
+    gcloud compute ssh {{ prefix }}-app-server --zone {{ gcp_zone }} --command '
+      if ! sudo wp core is-installed --path=/var/www/{{ item.name }} --allow-root; then
+        sudo wp core install \
+          --url=http://{{ item.name }}.example.com \
+          --title="{{ item.name | upper }} Site" \
+          --admin_user={{ item.admin_user }} \
+          --admin_password={{ item.admin_pass }} \
+          --admin_email={{ item.admin_email }} \
+          --path=/var/www/{{ item.name }} \
+          --locale=en_US \
+          --allow-root;
+      else
+        echo "{{ item.name }} already installed. Skipping.";
+      fi
+    '
+  loop: "{{ wp_sites }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+
+- name: Get cache server IP
+  command: >
+    gcloud compute instances describe {{ prefix }}-cache-server
+    --zone {{ gcp_zone }}
+    --format='get(networkInterfaces[0].networkIP)'
+  register: cache_ip_result
+
+
+- name: Set fact for redis internal IP
+  set_fact:
+    cache_server_internal_ip: "{{ cache_ip_result.stdout }}"
+
+
+- name: Ensure Redis plugin and config is set per site
+  shell: |
+    gcloud compute ssh {{ prefix }}-app-server --zone={{ gcp_zone }} --command '
+      if ! wp plugin is-installed redis-cache --path=/var/www/{{ item.name }} --allow-root; then
+        sudo wp plugin install redis-cache --activate --path=/var/www/{{ item.name }} --allow-root;
+      fi
+
+      grep -q WP_REDIS_HOST /var/www/{{ item.name }}/wp-config.php || \
+      sudo sed -i "/<?php/a define('\''WP_REDIS_HOST'\'', '\''{{ cache_server_internal_ip }}'\'');" /var/www/{{ item.name }}/wp-config.php
+
+      grep -q WP_REDIS_PASSWORD /var/www/{{ item.name }}/wp-config.php || \
+      sudo sed -i "/<?php/a define('\''WP_REDIS_PASSWORD'\'', '\''{{ redis_password }}'\'');" /var/www/{{ item.name }}/wp-config.php
+
+      grep -q WP_REDIS_DATABASE /var/www/{{ item.name }}/wp-config.php || \
+      sudo sed -i "/<?php/a define('\''WP_REDIS_DATABASE'\'',  {{ item.redis_db }});" /var/www/{{ item.name  }}/wp-config.php
+
+      wp redis status --path=/var/www/{{ item.name }} --allow-root | grep -q "Status: Connected" || \
+      wp redis enable --path=/var/www/{{ item.name }} --allow-root;
+    '
+  loop: "{{ wp_sites }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+
+

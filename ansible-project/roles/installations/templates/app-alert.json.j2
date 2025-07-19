@@ -1,0 +1,116 @@
+{
+  "uid": "aepb5ul0b785ca",
+  "orgID": 1,
+  "folderUID": "alerts-folder",
+  "ruleGroup": "alert",
+  "title": "app-server-alert-rule",
+  "condition": "C",
+  "for": "1m",
+  "isPaused": false,
+  "keep_firing_for": "0s",
+  "noDataState": "NoData",
+  "execErrState": "Error",
+  "notification_settings": {
+    "receiver": "grafana-default-email"
+  },
+  "updated": "2025-06-18T07:41:37Z",
+
+  "data": [
+    {
+      "refId": "A",
+      "queryType": "range",
+      "relativeTimeRange": { "from": 600, "to": 0 },
+      "datasourceUid": "{{loki_datasource_uid}}",
+      "model": {
+        "refId": "A",
+        "datasource": {
+          "type": "loki",
+          "uid": "{{loki_datasource_uid}}"
+        },
+        "editorMode": "code",
+        "expr": "count_over_time({job=\"{{ prefix }}-app-server\"} |~ \"panic|fatal\" [1m])",
+        "hide": false,
+        "instant": true,
+        "intervalMs": 1000,
+        "maxDataPoints": 43200,
+        "queryType": "range"
+      }
+    },
+
+    {
+      "refId": "reducer",
+      "queryType": "expression",
+      "relativeTimeRange": { "from": 0, "to": 0 },
+      "datasourceUid": "__expr__",
+      "model": {
+        "refId": "reducer",
+        "type": "reduce",
+        "expression": "A",
+        "reducer": "last",
+        "intervalMs": 1000,
+        "maxDataPoints": 43200,
+        "datasource": {
+          "name": "Expression",
+          "type": "__expr__",
+          "uid": "__expr__"
+        },
+        "conditions": [
+          {
+            "type": "query",
+            "evaluator": {
+              "type": "gt",
+              "params": [0, 0]
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": []
+            },
+            "reducer": {
+              "type": "avg",
+              "params": []
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "refId": "C",
+      "queryType": "",
+      "relativeTimeRange": { "from": 0, "to": 0 },
+      "datasourceUid": "__expr__",
+      "model": {
+        "refId": "C",
+        "type": "threshold",
+        "expression": "reducer",
+        "intervalMs": 1000,
+        "maxDataPoints": 43200,
+        "conditions": [
+          {
+            "type": "query",
+            "evaluator": {
+              "type": "gt",
+              "params": [0]
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": ["C"]
+            },
+            "reducer": {
+              "type": "last",
+              "params": []
+            }
+          }
+        ],
+        "datasource": {
+          "type": "__expr__",
+          "uid": "__expr__"
+        }
+      }
+    }
+  ]
+}

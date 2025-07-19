@@ -1,0 +1,29 @@
+- name: Create startup script file for template
+  template:
+    src: startup-script.sh.j2
+    dest: /tmp/startup-script.sh
+
+
+- name: Create or update GCP instance template with startup script
+  shell: |
+    gcloud compute instance-templates describe wp-template --project={{ gcp_project }} > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+      gcloud compute instance-templates delete wp-template --project={{ gcp_project }} --quiet
+    fi
+
+    gcloud compute instance-templates create wp-template \
+      --project={{ gcp_project }} \
+      --machine-type=e2-medium \
+      --image=ubuntu-minimal-2404-noble-amd64-v20250530 \
+      --image-project=ubuntu-os-cloud \
+      --region={{ gcp_region }} \
+      --subnet={{ subnet_name }} \
+      --metadata-from-file startup-script=/tmp/startup-script.sh \
+      --tags=wordpress
+  ignore_errors: true
+
+
+- name: Delete local temporary files
+  file:
+    path: "/tmp/startup-script.sh"
+    state: absent

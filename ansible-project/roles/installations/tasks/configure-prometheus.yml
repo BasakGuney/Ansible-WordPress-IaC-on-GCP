@@ -1,0 +1,61 @@
+- name: Render prometheus.yml with dynamic targets
+  template:
+    src: prometheus.yml.j2
+    dest: /tmp/prometheus.yml
+
+
+- name: Create Prometheus supervisor conf
+  template:
+    src: "prometheus.conf.j2"
+    dest: "/tmp/prometheus.conf"
+
+
+- name: Manage Prometheus log directories
+  shell: |
+    gcloud compute ssh {{ prefix }}-monitoring-server \
+      --zone={{ gcp_zone }} \
+      --command="
+        sudo mkdir -p /var/log/prometheus &&
+        sudo chown -R  prometheus:prometheus /var/log/prometheus &&
+        sudo chmod -R 0755 /var/log/prometheus
+      "
+
+
+- name: Copy conf file to remote and move to supervisor conf.d
+  shell: |
+    gcloud compute scp /tmp/prometheus.conf {{ prefix }}-monitoring-server:/tmp/ --zone {{ gcp_zone }} &&
+    gcloud compute ssh {{ prefix }}-monitoring-server --zone {{ gcp_zone }} --command='
+      sudo mv /tmp/prometheus.conf /etc/supervisor/conf.d/prometheus.conf &&
+      sudo supervisorctl reread &&
+      sudo supervisorctl update &&
+      sudo supervisorctl start prometheus
+    '
+    
+
+- name: Copy prometheus.yml to monitoring server
+  shell: |
+    gcloud compute scp /tmp/prometheus.yml {{ prefix }}-monitoring-server:/tmp/prometheus.yml \
+    --zone {{ gcp_zone }}
+
+
+- name: Move prometheus.yml and restart Prometheus
+  shell: |
+    gcloud compute ssh {{ prefix }}-monitoring-server \
+    --zone {{ gcp_zone }} \
+    --command='
+      sudo mv /tmp/prometheus.yml /etc/prometheus/prometheus.yml &&
+      sudo chown prometheus:prometheus /etc/prometheus/prometheus.yml &&
+      sudo supervisorctl restart prometheus
+    '
+
+
+- name: Delete local temporary file
+  file:
+    path: "/tmp/prometheus.yml"
+    state: absent
+
+
+- name: Delete local temporary file
+  file:
+    path: "/tmp/prometheus.conf"
+    state: absent

@@ -1,0 +1,9 @@
+venv_path: "{{ prefered_venv_path }}/.venvs/ansible-gcp"
+pip_bin: "{{ venv_path }}/bin/pip"
+python_bin: "{{ venv_path }}/bin/python"
+pip_packages:
+- google-auth
+- google-auth-httplib2
+- google-api-python-client
+- requests
+- packaging

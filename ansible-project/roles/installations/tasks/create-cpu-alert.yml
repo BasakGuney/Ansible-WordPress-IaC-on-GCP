@@ -1,0 +1,84 @@
+- name: Get all alert rule UIDs
+  shell: |
+    gcloud compute ssh {{ prefix }}-log-server --zone {{ gcp_zone }} --command '
+      curl -s -H "Authorization: Basic {{ admin_basic_auth }}" http://localhost:3000/api/v1/provisioning/alert-rules \
+      | jq -r ".[].uid"
+    '
+  register: existing_alert_uids
+  changed_when: false
+
+
+- name: Delete all existing alert rules
+  shell: |
+    {% for uid in existing_alert_uids.stdout_lines %}
+    gcloud compute ssh {{ prefix }}-log-server --zone {{ gcp_zone }} --command '
+      curl -s -X DELETE http://localhost:3000/api/v1/provisioning/alert-rules/{{ uid }} \
+        -H "Authorization: Basic {{ admin_basic_auth }}"
+    '
+    {% endfor %}
+  when: existing_alert_uids.stdout_lines | length > 0
+
+
+- name: Copy folder creation JSON to log server
+  template:
+    src: create-alerts-folder.json.j2
+    dest: /tmp/create-alerts-folder.json
+
+
+- name: Copy alerts folder creation JSON to log server
+  shell: |
+    gcloud compute scp /tmp/create-alerts-folder.json {{prefix}}-log-server:/tmp/create-alerts-folder.json --zone {{gcp_zone}}
+
+
+- name: Create Alerts folder in Grafana (ignore if exists)
+  shell: |
+    gcloud compute ssh {{ prefix }}-log-server --zone {{ gcp_zone }} --command '
+      curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3000/api/folders \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Basic {{ admin_basic_auth }}" \
+        -d @/tmp/create-alerts-folder.json
+    '
+  register: create_folder_response
+  changed_when: create_folder_response.stdout != "412"  
+
+
+- name: Get Prometheus datasource UID from Grafana
+  shell: |
+    gcloud compute ssh {{ prefix }}-log-server --zone {{ gcp_zone }} --command '
+      curl -s -H "Authorization: Basic {{ admin_basic_auth }}" http://localhost:3000/api/datasources \
+      | jq -r ".[] | select(.type==\"prometheus\") | .uid"
+    '
+  register: prometheus_uid_result
+  changed_when: false
+
+
+- name: Set Prometheus UID fact
+  set_fact:
+    prometheus_datasource_uid: "{{ prometheus_uid_result.stdout }}"
+
+
+- name: Render CPU alert rule JSON
+  template:
+    src: cpu-alert.json.j2
+    dest: /tmp/cpu-alert.json
+
+
+- name: Copy alerts rule to server
+  shell: |
+    gcloud compute scp /tmp/cpu-alert.json {{prefix}}-log-server:/tmp/cpu-alert.json --zone {{gcp_zone}}
+
+
+- name: Upload CPU usage alert to Grafana
+  shell: |
+    gcloud compute ssh {{ prefix }}-log-server --zone {{ gcp_zone }} --command '
+      curl -s -X POST http://localhost:3000/api/v1/provisioning/alert-rules \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Basic {{ admin_basic_auth }}" \
+        --data-binary @/tmp/cpu-alert.json
+    '
+  register: cpu_alert_response
+
+
+- name: Show alert creation response
+  debug:
+    var: cpu_alert_response.stdout

@@ -1,0 +1,12 @@
+/var/log/{{ item.key }}/*.log {
+    daily
+    rotate {{ item.value.retention }}
+    compress
+    missingok
+    notifempty
+    create 0640 {{ item.value.user }} {{ item.value.group }}
+    sharedscripts
+    postrotate
+        supervisorctl signal USR1 {{ item.key }} || true
+    endscript
+}

@@ -1,0 +1,155 @@
+- name: Define WordPress sites
+  set_fact:
+    wp_sites:
+      - name: "{{ wp1_name }}"
+        db_name: "{{ wp1_db_name }}"
+        db_user: "{{ wp1_username }}"
+        db_pass: "{{ wp1_db_password }}"
+        admin_user: "{{ wp1_admin_username }}"
+        admin_pass: "{{ wp1_admin_password }}"
+        admin_email: "{{ wp1_admin_email }}"
+        redis_db: 0
+      - name: "{{ wp2_name }}"
+        db_name: "{{ wp2_db_name }}"
+        db_user: "{{ wp2_username }}"
+        db_pass: "{{ wp2_db_password }}"
+        admin_user: "{{ wp2_admin_username }}"
+        admin_pass: "{{ wp2_admin_password }}"
+        admin_email: "{{ wp2_admin_email }}"
+        redis_db: 1
+        
+
+- name: Install Nginx, PHP, MySQL client and dependencies
+  shell: |
+    gcloud compute ssh {{ prefix }}-app-server --zone {{ gcp_zone }} --command "
+      sudo apt-get update &&
+      sudo apt-get install -y nginx php-fpm php-mysql mysql-client
+    "
+
+
+- name: Create Nginx supervisor conf
+  template:
+    src: "nginx.conf.j2"
+    dest: "/tmp/nginx.conf"
+
+
+- name: Disable systemd for Nginx and manage directories
+  shell: |
+    gcloud compute ssh {{ prefix }}-app-server \
+      --zone={{ gcp_zone }} \
+      --command="
+        (sudo systemctl stop nginx || true) &&
+        (sudo systemctl disable nginx || true) &&
+        (sudo systemctl mask nginx || true) &&
+        sudo mkdir -p /var/log/nginx &&
+        sudo touch /var/log/nginx/nginx.out.log /var/log/nginx/nginx.err.log &&
+        sudo chown -R root:root /var/log/nginx &&
+        sudo chmod -R 755 /var/log/nginx
+      "
+
+
+- name: Copy conf file to remote and move to supervisor conf.d
+  shell: |
+    gcloud compute scp /tmp/nginx.conf {{ prefix }}-app-server:/tmp/ --zone {{ gcp_zone }} &&
+    gcloud compute ssh {{ prefix }}-app-server --zone {{ gcp_zone }} --command='
+      sudo mv /tmp/nginx.conf /etc/supervisor/conf.d/nginx.conf &&
+      sudo supervisorctl reread &&
+      sudo supervisorctl update &&
+      sudo supervisorctl start nginx &&
+      sudo supervisorctl start nginx
+    '
+
+
+- name: Setup WordPress site directories and files
+  shell: |
+    gcloud compute ssh {{ prefix }}-app-server --zone {{ gcp_zone }} --command "
+      if [ ! -f /var/www/{{ item.name }}/wp-config.php ]; then
+        sudo mkdir -p /var/www/{{ item.name }} &&
+        sudo wget -q https://wordpress.org/latest.tar.gz -O /tmp/wordpress.tar.gz &&
+        sudo tar -xzf /tmp/wordpress.tar.gz -C /tmp &&
+        sudo cp -r /tmp/wordpress/* /var/www/{{ item.name }}/ &&
+        sudo chown -R www-data:www-data /var/www/{{ item.name }}
+      fi
+    "
+  loop: "{{ wp_sites }}"
+
+
+- name: Copy Nginx site configs to app server
+  template:
+    src: nginx-site.conf.j2
+    dest: "/tmp/{{ item.name }}.conf"
+  loop: "{{ wp_sites }}"
+
+
+- name: Upload Nginx site configs to app server
+  shell: |
+    gcloud compute scp /tmp/{{ item.name }}.conf {{ prefix }}-app-server:/tmp/{{ item.name }}.conf --zone {{ gcp_zone }}
+  loop: "{{ wp_sites }}"
+
+
+- name: Place Nginx config and enable site on app server
+  shell: |
+    gcloud compute ssh {{ prefix }}-app-server --zone {{ gcp_zone }} --command "
+      if [ ! -f /etc/nginx/sites-available/{{ item.name }} ]; then
+        sudo mv /tmp/{{ item.name }}.conf /etc/nginx/sites-available/{{ item.name }} &&
+        sudo ln -s /etc/nginx/sites-available/{{ item.name }} /etc/nginx/sites-enabled/{{ item.name }}
+      fi
+    "
+  loop: "{{ wp_sites }}"
+
+
+- name: Remove default Nginx config if it exists
+  shell: |
+    gcloud compute ssh {{ prefix }}-app-server --zone {{ gcp_zone }} --command "sudo rm -f /etc/nginx/sites-enabled/default"
+
+
+- name: Test Nginx config and reload
+  shell: |
+    gcloud compute ssh {{ prefix }}-app-server --zone {{ gcp_zone }} --command "
+      sudo nginx -t && sudo supervisorctl signal HUP nginx
+    "
+
+
+- name: Get info about the app server instance
+  google.cloud.gcp_compute_instance_info:
+    auth_kind: serviceaccount
+    service_account_file: "{{ gcp_credentials_file }}"
+    project: "{{ gcp_project }}"
+    zone: "{{ gcp_zone }}"
+    filters:
+      - name = {{ prefix }}-app-server
+  register: app_server_vm_info
+
+
+- name: Set app server external IP fact
+  set_fact:
+    app_server_external_ip: "{{ app_server_vm_info.resources[0].networkInterfaces[0].accessConfigs[0].natIP }}"
+
+
+- name: Set app server internal IP fact
+  set_fact:
+    app_server_internal_ip: "{{ app_server_vm_info.resources[0].networkInterfaces[0].networkIP }}"
+
+
+- name: Add WordPress sites to local /etc/hosts
+  become: true
+  become_user: root
+  delegate_to: localhost
+  lineinfile:
+    path: /etc/hosts
+    state: present
+    line: "{{ app_server_external_ip }} {{ wp2_name }}.example.com"
+    regexp: "^{{ app_server_external_ip }} {{ wp2_name }}.example.com$"
+
+
+- name: Delete local temporary site conf files
+  file:
+    path: "/tmp/{{ item.name }}.conf"
+    state: absent
+  loop: "{{ wp_sites }}"
+
+
+- name: Delete local temporary supervisor conf file
+  file:
+    path: /tmp/nginx.conf
+    state: absent

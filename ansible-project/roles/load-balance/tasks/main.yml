@@ -1,0 +1,8 @@
+- import_tasks: get-internal-ip.yml
+- import_tasks: set-nfs-in-master.yml
+- import_tasks: create-instance-template.yml
+- import_tasks: create-mig.yml
+- import_tasks: enable-autoscaling.yml
+- import_tasks: setup-load-balancer.yml
+
+

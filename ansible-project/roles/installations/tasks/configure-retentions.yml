@@ -1,0 +1,16 @@
+- name: Create logrotate config files for logrotate-managed services
+  template:
+    src: logrotate.conf.j2
+    dest: "/tmp/{{ item.key }}.logrotate"
+  loop: "{{ logrotate_services | dict2items }}"
+
+
+- name: Copy logrotate config files to remote servers
+  shell: |
+    gcloud compute scp /tmp/{{ item.0.key }}.logrotate {{ item.1 }}:/tmp/ --zone {{ gcp_zone }} &&
+    gcloud compute ssh {{ item.1 }} --zone {{ gcp_zone }} --command="
+      sudo mv /tmp/{{ item.0.key }}.logrotate /etc/logrotate.d/{{ item.0.key }} &&
+      sudo chown root:root /etc/logrotate.d/{{ item.0.key }} &&
+      sudo chmod 644 /etc/logrotate.d/{{ item.0.key }}"
+  loop: "{{ logrotate_services | dict2items | subelements('value.servers') }}"
+

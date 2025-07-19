@@ -1,0 +1,16 @@
+- name: Create managed instance group
+  shell: |
+    gcloud compute instance-groups managed describe wp-group --zone {{ gcp_zone }} --project {{ gcp_project }} > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+      gcloud compute instance-groups managed create wp-group \
+        --zone {{ gcp_zone }} \
+        --template wp-template \
+        --size 1 \
+        --base-instance-name wp-instance \
+        --project {{ gcp_project }}
+    else
+      gcloud compute instance-groups managed set-instance-template wp-group \
+        --template wp-template \
+        --zone {{ gcp_zone }} \
+        --project {{ gcp_project }}
+    fi

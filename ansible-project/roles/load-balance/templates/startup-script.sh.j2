@@ -1,0 +1,16 @@
+#!/bin/bash
+apt-get update
+apt-get install -y nginx php-fpm php-mysql nfs-common openssh-client mysql-client
+
+sudo mkdir -p /var/www/{{ wp1_name }}
+sudo mount {{ master_wp_internal_ip }}:/var/www/{{ wp1_name }} /var/www/{{ wp1_name }}
+echo "{{ master_wp_internal_ip }}:/var/www/{{ wp1_name }} /var/www/{{ wp1_name }} nfs defaults 0 0" | sudo tee -a /etc/fstab
+
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo rm -f /etc/nginx/sites-available/default
+sudo mkdir -p /etc/nginx/sites-available/
+sudo mount {{ master_wp_internal_ip }}:/etc/nginx/sites-available/ /etc/nginx/sites-available/
+echo "{{ master_wp_internal_ip }}:/etc/nginx/sites-available/ /etc/nginx/sites-available/ nfs defaults 0 0" | sudo tee -a /etc/fstab
+sudo ln -s /etc/nginx/sites-available/{{ wp1_name }} /etc/nginx/sites-enabled/{{ wp1_name }}
+
+sudo systemctl restart nginx

@@ -1,0 +1,41 @@
+- name: Encode admin:admin to base64 and set fact
+  ansible.builtin.set_fact:
+    admin_basic_auth: "{{ 'admin:admin' | b64encode }}"
+
+
+- name: Get internal IP of the monitoring server
+  gcp_compute_instance_info:
+    auth_kind: serviceaccount
+    service_account_file: "{{ gcp_credentials_file }}"
+    project: "{{ gcp_project }}"
+    zone: "{{ gcp_zone }}"
+    filters:
+      - name = "{{ prefix }}-monitoring-server"
+  register: monitoring_instance_info
+
+
+- name: Set monitoring internal IP as a variable
+  set_fact:
+    monitoring_server_internal_ip: "{{ monitoring_instance_info.resources[0].networkInterfaces[0].networkIP }}"
+
+
+- name: Add Prometheus datasource to Grafana
+  shell: |
+    gcloud compute ssh {{ prefix }}-log-server --zone {{ gcp_zone }} --command "
+      curl -s -X POST -H 'Content-Type: application/json' \
+      -H 'Authorization: Basic {{ admin_basic_auth }}' \
+      -d '{\"name\":\"Prometheus\",\"type\":\"prometheus\",\"access\":\"proxy\",\"url\":\"http://{{ monitoring_server_internal_ip }}:9090\",\"isDefault\":true}' \
+      http://localhost:3000/api/datasources
+    "
+
+
+- name: Add Loki datasource to Grafana
+  shell: |
+    gcloud compute ssh {{ prefix }}-log-server --zone {{ gcp_zone }} --command "
+      curl -s -X POST -H 'Content-Type: application/json' \
+      -H 'Authorization: Basic {{ admin_basic_auth }}' \
+      -d '{\"name\":\"Loki\",\"type\":\"loki\",\"access\":\"proxy\",\"url\":\"http://localhost:3100\",\"isDefault\":false}' \
+      http://localhost:3000/api/datasources
+    "
+
+

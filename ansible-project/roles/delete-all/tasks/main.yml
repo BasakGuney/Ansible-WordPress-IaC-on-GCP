@@ -1,0 +1,156 @@
+- name: Delete all VM instances using loop
+  shell: >
+    gcloud compute instances delete {{ item }} --zone={{ gcp_zone }} --quiet --project {{ gcp_project }}
+  loop:
+    - "{{ prefix }}-app-server"
+    - "{{ prefix }}-db-server"
+    - "{{ prefix }}-cache-server"
+    - "{{ prefix }}-ci-cd-server"
+    - "{{ prefix }}-monitoring-server"
+    - "{{ prefix }}-log-server"
+  ignore_errors: true
+
+
+- name: Delete all additional disks 
+  shell: >
+    gcloud compute disks delete {{ item }} --zone={{ gcp_zone }} --quiet --project {{ gcp_project }}
+  loop: 
+    - mysql-data-disk
+    - loki-data-disk
+  ignore_errors: true
+
+
+- name: Delete all firewall rules using loop
+  shell: >
+    gcloud compute firewall-rules delete {{ item }} --quiet --project {{ gcp_project }}
+  loop:
+    - "{{ prefix }}-allow-host"
+    - "{{ prefix }}-allow-internal"
+    - "{{ prefix }}-deny-all-ingress"
+  ignore_errors: true
+
+
+- name: Delete all static IP addresses using loop
+  shell: >
+    gcloud compute addresses delete {{ item }} --region={{ gcp_region }} --quiet --project {{ gcp_project }}
+  loop:
+    - "{{ prefix }}-app-server-static-ip"
+    - "{{ prefix }}-db-server-static-ip"
+    - "{{ prefix }}-cache-server-static-ip"
+    - "{{ prefix }}-ci-cd-server-static-ip"
+    - "{{ prefix }}-monitoring-server-static-ip"
+    - "{{ prefix }}-log-server-static-ip"
+  ignore_errors: true
+
+
+- name: Recursively delete folders if they exist
+  shell: >
+    sudo rm -rf {{ current_path }}/keys
+    sudo rm -rf {{ prefered_venv_path }}/.venvs
+
+
+- name: Remove wp1.example.com and wp2.example.com entries from /etc/hosts
+  become: true
+  lineinfile:
+    path: /etc/hosts
+    state: absent
+    regexp: '.*wp[12]\.example\.com.*'
+
+
+- name: Delete global forwarding rule
+  shell: |
+    gcloud compute forwarding-rules delete wp-external-lb \
+      --project {{ gcp_project }} \
+      --global \
+      --quiet
+  ignore_errors: true
+
+
+- name: Delete target HTTP proxy
+  shell: |
+    gcloud compute target-http-proxies delete wp-http-proxy \
+      --project {{ gcp_project }} \
+      --quiet
+  ignore_errors: true
+
+- name: Delete URL map
+  shell: |
+    gcloud compute url-maps delete wp-url-map \
+      --project {{ gcp_project }} \
+      --quiet
+  ignore_errors: true
+
+
+- name: Remove instance group from backend service (optional)
+  shell: |
+    gcloud compute backend-services remove-backend wp-backend-service \
+      --project {{ gcp_project }} \
+      --instance-group wp-group \
+      --instance-group-zone {{ gcp_zone }} \
+      --global \
+      --quiet
+  ignore_errors: true
+
+- name: Delete backend service
+  shell: |
+    gcloud compute backend-services delete wp-backend-service \
+      --project {{ gcp_project }} \
+      --global \
+      --quiet
+  ignore_errors: true
+
+
+- name: Delete health check
+  shell: |
+    gcloud compute health-checks delete wp-health-check \
+      --project {{ gcp_project }} \
+      --quiet
+  ignore_errors: true
+
+
+- name: Delete reserved external IP
+  shell: |
+    gcloud compute addresses delete {{ prefix }}-external-lb-ip \
+      --project {{ gcp_project }} \
+      --global \
+      --quiet
+  ignore_errors: true
+
+
+- name: Delete managed instance group
+  shell: |
+    gcloud compute instance-groups managed delete wp-group \
+      --zone {{ gcp_zone }} \
+      --quiet \
+      --project {{ gcp_project }}
+  ignore_errors: true
+  
+
+- name: Delete instance template
+  shell: |
+    gcloud compute instance-templates delete wp-template \
+      --quiet \
+      --project {{ gcp_project }}
+  ignore_errors: true
+
+
+- name: Delete firewall rule for health checks
+  shell: |
+    gcloud compute firewall-rules delete allow-health-checks \
+      --quiet \
+      --project {{ gcp_project }}
+  ignore_errors: true
+
+
+- name: Delete subnet
+  shell: >
+    gcloud compute networks subnets delete {{ subnet_name }} --region={{ gcp_region }} --quiet --project {{ gcp_project }}
+  ignore_errors: true
+
+
+- name: Delete VPC network
+  shell: >
+    gcloud compute networks delete {{ network_name }} --quiet --project {{ gcp_project }}
+  ignore_errors: true
+
+
