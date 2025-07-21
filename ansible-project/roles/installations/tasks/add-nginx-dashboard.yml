@@ -1,7 +1,14 @@
 - name: Download NGINX Dashboard JSON from grafana.com
   get_url:
-    url: https://grafana.com/api/dashboards/12767/revisions/1/download
+    url: https://grafana.com/api/dashboards/12767/revisions/2/download
     dest: /tmp/nginx-dashboard.json
+
+
+- name: Replace hardcoded datasource UID in dashboard JSON
+  replace:
+    path: /tmp/nginx-dashboard.json
+    regexp: 'DS_PROMETHEUS-[A-Z0-9]+'
+    replace: 'DS_PROMETHEUS'
 
 
 - name: Prepare Grafana dashboard import JSON
