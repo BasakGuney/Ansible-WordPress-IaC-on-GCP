@@ -31,7 +31,7 @@
 
 <a name="overview"></a>
 # 1. Overview
-The project provides modular WordPress infrastructure that is fully automated using Ansible and deployed on Google Cloud Platform (GCP). It demonstrates a DevOps approach by combining infrastructure as code, CI/CD pipelines, monitoring, logging, and service orchestration across six dedicated servers.
+The project provides modular WordPress infrastructure that is fully automated using Ansible and deployed on Google Cloud Platform (GCP). It demonstrates a DevOps approach by combining infrastructure as code, CI/CD pipelines, monitoring, logging, and service orchestration across six dedicated servers, also includes an instance group to provide load balancing and autoscaling for Word Press.
 
 </br>
 </br>
