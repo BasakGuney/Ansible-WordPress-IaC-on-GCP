@@ -233,6 +233,15 @@ The project provides modular WordPress infrastructure that is fully automated us
 </br>
 </br>
 
+<a name="load-balance"></a>
+# 5. WordPress Autoscaling and Load Balance
+
+The master instance of WordPress is configured as the central server where the application code is stored and deployed via Jenkins. Auto-scaled replicas are created based on this master instance; they connect to the same database and share content from the main server via NFS. A load balancer monitors the health of these instances and distributes incoming traffic evenly, automatically increasing or decreasing the number of active instances based on demand.
+
+
+</br>
+</br>
+
 <a name="playbook-descriptions"></a>
 # 5. Playbook Descriptions
 
