@@ -243,11 +243,11 @@ The master instance of WordPress is configured as the central server where the a
 </br>
 
 <a name="playbook-descriptions"></a>
-# 5. Playbook Descriptions
+# 6. Playbook Descriptions
 
-## 5.1  main.yml
+## 6.1  main.yml
 
-### 5.1.1 Variables
+### 6.1.1 Variables
 
 Startup variables that will be used in many places are defined here, you have to set them according to your preferences before you start:
 
@@ -266,7 +266,7 @@ subnet_name: "{{ prefix }}-subnet"
 ```
 
 
-### 5.1.2 Roles
+### 6.1.2 Roles
 ```yaml
   roles:
   - setup-env
@@ -318,7 +318,7 @@ subnet_name: "{{ prefix }}-subnet"
 </br>
 </br>
 
-## 5.2 Additional vars Folders
+## 6.2 Additional vars Folders
 
 There are var folders, **./roles/setup-env/vars**, **./roles/installations/vars** and **./roles/load-balance/vars** .
 
@@ -522,7 +522,7 @@ target_load_balancing_utilization: 0.6
 </br>
 </br>
 
-## 5.3 Templates
+## 6.3 Templates
 There is a templates folder under **./roles/installations/** and **./roles/load-balance/** to be used for configurations.
 
 ####  `./roles/installations/templates` 
