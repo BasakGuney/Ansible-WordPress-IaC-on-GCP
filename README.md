@@ -22,7 +22,7 @@
 ### 2. [**Key Features**](#key-features)  
 ### 3. [**Filesystem**](#filesystem)  
 ### 4. [**Server Roles, Software, and Descriptions**](#servers)  
-### 5. [**WordPress Autoscaling and Load Balance**](#load-balance)  
+### 5. [**WordPress Autoscaling and Load Balance**](#loadbalance)  
 ### 6. [**Playbook Descriptions**](#playbook-descriptions) 
 ### 7. [**Usage**](#usage) 
 
@@ -233,7 +233,7 @@ The project provides modular WordPress infrastructure that is fully automated us
 </br>
 </br>
 
-<a name="load-balance"></a>
+<a name="loadbalance"></a>
 # 5. WordPress Autoscaling and Load Balance
 
 The master instance of WordPress is configured as the central server where the application code is stored and deployed via Jenkins. Auto-scaled replicas are created based on this master instance; they connect to the same database and share content from the main server via NFS. A load balancer monitors the health of these instances and distributes incoming traffic evenly, automatically increasing or decreasing the number of active instances based on demand.
@@ -551,8 +551,8 @@ There is a templates folder under **./roles/installations/** and **./roles/load-
 </br>
 
 <a name="usage"></a>
-# 6. Usage
-### 6.1 Add Your GCP Credentials
+# 7. Usage
+### 7.1 Add Your GCP Credentials
 
 Change directory to ansible-project:
 ```bash
@@ -561,13 +561,13 @@ cd ansible-project
 
 </br>
 
-### 6.2 Add Your GCP Credentials
+### 7.2 Add Your GCP Credentials
 
 Before running the playbook, make sure you have your GCP service account key file (`.json`).
 
 </br>
 
-### 6.3 Edit Variables in `./main.yml`
+### 7.3 Edit Variables in `./main.yml`
 
 In the `./main.yml` file, update the following variables to fit your environment:
 
@@ -589,7 +589,7 @@ In the `./main.yml` file, update the following variables to fit your environment
 
 </br>
 
-### 6.4 Run the playbook
+### 7.4 Run the playbook
 Launch the full infrastructure setup with:
 ```bash
 sudo ansible-playbook main.yml -v
@@ -597,7 +597,7 @@ sudo ansible-playbook main.yml -v
 
 </br>
 
-### 6.5 Access the Web Interfaces
+### 7.5 Access the Web Interfaces
 
 After provisioning, you can access the services using your browser or a GUI-enabled session:
 
@@ -627,7 +627,7 @@ firefox
 ```
 </br>
 
-### 6.5 To Delete All
+### 7.6 To Delete All
 If you want to delte all resources created by the playbook, in `./main.yml` comment out the role delete-all and comment in the other roles:
 ```yml
   roles:
